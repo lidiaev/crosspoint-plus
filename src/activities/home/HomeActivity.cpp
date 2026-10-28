@@ -22,6 +22,7 @@
 #include "MappedInputManager.h"
 #include "OpdsServerStore.h"
 #include "RecentBooksStore.h"
+#include "activities/notes/TypingLabActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 
@@ -550,6 +551,10 @@ void HomeActivity::render(RenderLock&&) {
 void HomeActivity::onSelectBook(const std::string& path) { activityManager.goToReader(path); }
 
 void HomeActivity::onNotesOpen() {
+#ifdef CPX_TYPING_LAB
+  activityManager.replaceActivity(std::make_unique<TypingLabActivity>(renderer, mappedInput));
+  return;
+#endif
   // Notes are plain Markdown files in /notes, opened through the file browser for now.
   Storage.ensureDirectoryExists("/notes");
   activityManager.goToFileBrowser("/notes");
