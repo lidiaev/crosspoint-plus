@@ -713,10 +713,22 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
 
     // Check if file already exists - SD operations can be slow
     resetTaskWatchdogIfSubscribed();
+    state.staged = false;
     if (Storage.exists(filePath.c_str())) {
-      state.error = "File already exists: " + state.fileName;
-      LOG_DBG("WEB", "[UPLOAD] Collision: %s", filePath.c_str());
-      return;
+      const String overwrite = server->arg("overwrite");
+      if (overwrite != "1" && overwrite != "true") {
+        state.error = "File already exists: " + state.fileName;
+        LOG_DBG("WEB", "[UPLOAD] Collision: %s", filePath.c_str());
+        return;
+      }
+      HalFile existing = Storage.open(filePath.c_str());
+      if (existing && existing.isDirectory()) {
+        state.error = "A folder with this name already exists: " + state.fileName;
+        return;
+      }
+      existing.close();
+      state.staged = true;
+      filePath += ".part";
     }
 
     // Open file for writing - this can be slow due to FAT cluster allocation
@@ -774,6 +786,20 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
       }
       state.file.close();
 
+      String destPath = state.path;
+      if (!destPath.endsWith("/")) destPath += "/";
+      destPath += state.fileName;
+      if (state.staged) {
+        const String partPath = destPath + ".part";
+        resetTaskWatchdogIfSubscribed();  // removing a large original walks its cluster chain
+        if (!state.error.isEmpty()) {
+          Storage.remove(partPath.c_str());
+        } else if (!Storage.remove(destPath.c_str()) || !Storage.rename(partPath.c_str(), destPath.c_str())) {
+          state.error = "Failed to replace the existing file";
+          LOG_ERR("WEB", "[UPLOAD] Replace failed: %s", destPath.c_str());
+        }
+      }
+
       if (state.error.isEmpty()) {
         state.success = true;
         const unsigned long elapsed = millis() - uploadStartTime;
@@ -800,6 +826,7 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
       String filePath = state.path;
       if (!filePath.endsWith("/")) filePath += "/";
       filePath += state.fileName;
+      if (state.staged) filePath += ".part";
       Storage.remove(filePath.c_str());
     }
     state.error = "Upload aborted";

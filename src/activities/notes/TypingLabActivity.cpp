@@ -15,7 +15,11 @@ namespace fui = freeink::ui;
 namespace {
 constexpr fui::ActionId ACTION_KEY = 1;
 constexpr int MARGIN = 12;
+#ifdef FREEINK_X4PRO_FAST_DU_SHORTCUT
+constexpr const char* STRATEGY_NAMES[] = {"1 stock DU", "2 full DU", "3 window DU"};
+#else
 constexpr const char* STRATEGY_NAMES[] = {"1 stock", "2 full", "3 window"};
+#endif
 
 size_t utf8Next(const std::string& s, size_t i) {
   if (i >= s.size()) return s.size();
