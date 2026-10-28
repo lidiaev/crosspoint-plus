@@ -12,6 +12,7 @@
 // clang-format on
 
 #include <algorithm>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 
@@ -19,7 +20,7 @@
 #include "FirmwareFlasher.h"
 
 namespace {
-constexpr char latestReleaseUrl[] = "https://api.github.com/repos/crosspoint-reader/crosspoint-reader/releases/latest";
+constexpr char latestReleaseUrl[] = "https://api.github.com/repos/lidiaev/crosspoint-plus/releases/latest";
 }  // namespace
 
 OtaUpdater::OtaUpdaterError OtaUpdater::checkForUpdate() {
@@ -117,6 +118,13 @@ bool OtaUpdater::isUpdateNewer() const {
    * Check patch versions.
    */
   if (latestPatch != currentPatch) return latestPatch > currentPatch;
+
+  // CrossPoint Plus: same upstream base, compare the fork build number ("-plus.N").
+  const char* latestPlus = strstr(latestVersion.c_str(), "-plus.");
+  const char* currentPlus = strstr(currentVersion, "-plus.");
+  const int latestBuild = latestPlus ? atoi(latestPlus + 6) : 0;
+  const int currentBuild = currentPlus ? atoi(currentPlus + 6) : 0;
+  if (latestBuild != currentBuild) return latestBuild > currentBuild;
 
   // If we reach here, it means all segments are equal.
   // One final check, if we're on an RC build (contains "-rc"), we should consider the latest version as newer even if

@@ -1,3 +1,17 @@
+# CrossPoint Plus
+
+An unofficial fork of [CrossPoint Reader](https://github.com/crosspoint-reader/crosspoint-reader) for the **Xteink X4 Pro**.
+It adds a fast, minimal Markdown **Notes** app and a simpler home screen. Everything else follows upstream releases.
+
+- Versions: `<upstream version>-plus.<build>`, for example `1.6.5-plus.1`.
+- Firmware: `crosspoint-<version>-x4pro.bin` on the [Releases](https://github.com/lidiaev/crosspoint-plus/releases) page.
+  The built-in OTA updater checks this fork's releases.
+- Only the X4 Pro is supported. Use upstream CrossPoint for other devices.
+
+The upstream README follows.
+
+---
+
 # CrossPoint Reader
 
 [![Fund contributors](https://img.shields.io/badge/%F0%9F%91%91_Fund_contributors-royalty.dev-BB953A?style=for-the-badge&labelColor=1a1a1a)](https://app.royalty.dev/crosspoint-reader/crosspoint-reader)
