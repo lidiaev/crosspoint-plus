@@ -45,6 +45,7 @@ class TypingLabActivity final : public Activity {
   std::atomic<uint8_t> strategy{static_cast<uint8_t>(Strategy::Full)};
   uint32_t stockDownMs = 0;
   int16_t stockDownValue = INT16_MIN;
+  bool contactActive = false;  // a contact was already handled; wait for lift-off
 
   // Render task state.
   std::string text;
@@ -61,7 +62,11 @@ class TypingLabActivity final : public Activity {
   uint32_t keyCount = 0;
   uint8_t lastBatch = 0;
 
+  enum class Control : uint8_t { None, Back, Mode, Clear };
+
   void enqueue(int16_t value, uint32_t downMs);
+  Control controlAt(int x, int y) const;
+  int controlBarHeight() const;
   bool keyAt(int x, int y, int16_t& value) const;
   // Applies one key to the text and layout; returns true when the keyboard must be redrawn.
   bool applyKey(int16_t value);

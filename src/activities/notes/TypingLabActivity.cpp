@@ -56,45 +56,70 @@ bool TypingLabActivity::keyAt(const int x, const int y, int16_t& value) const {
   return false;
 }
 
+int TypingLabActivity::controlBarHeight() const { return renderer.getLineHeight(UI_12_FONT_ID) + 2 * MARGIN; }
+
+// Three equal tap zones across the top bar: back, strategy, clear.
+TypingLabActivity::Control TypingLabActivity::controlAt(const int x, const int y) const {
+  if (y < 0 || y >= controlBarHeight()) return Control::None;
+  const int third = renderer.getScreenWidth() / 3;
+  if (x < third) return Control::Back;
+  if (x < 2 * third) return Control::Mode;
+  return Control::Clear;
+}
+
 void TypingLabActivity::loop() {
   if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
     onGoHome();
     return;
   }
-  if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
-    const uint8_t next = (strategy.load() + 1) % static_cast<uint8_t>(Strategy::Count);
-    strategy = next;
-    fullRedraw = true;
-    requestUpdate();
-    return;
-  }
-  if (mappedInput.wasPressed(MappedInputManager::Button::Left)) {
-    enqueue(INT16_MIN, millis());  // clear marker
-    fullRedraw = true;
-    requestUpdate();
-    return;
-  }
 
-  const auto current = static_cast<Strategy>(strategy.load());
+  // Raw contact edge: act once when a finger lands, then wait for lift-off.
   int tx = 0;
   int ty = 0;
-  int16_t value = 0;
-  if (mappedInput.wasScreenTouchDown(tx, ty) && keyAt(tx, ty, value)) {
-    if (current == Strategy::Stock) {
-      stockDownMs = millis();
-      stockDownValue = value;
-      highlightValue = value;
-    } else {
-      enqueue(value, millis());
+  const bool held = mappedInput.isScreenTouchHeld(tx, ty);
+  const auto current = static_cast<Strategy>(strategy.load());
+  if (!held) {
+    if (contactActive && current == Strategy::Stock && stockDownValue != INT16_MIN) {
+      enqueue(stockDownValue, stockDownMs);
+      stockDownValue = INT16_MIN;
+      highlightValue = INT16_MIN;
+      requestUpdate();
     }
-    requestUpdate();
+    contactActive = false;
+    return;
   }
-  if (current == Strategy::Stock && stockDownValue != INT16_MIN && mappedInput.wasScreenTouchReleased()) {
-    enqueue(stockDownValue, stockDownMs);
-    stockDownValue = INT16_MIN;
-    highlightValue = INT16_MIN;
-    requestUpdate();
+  if (contactActive) return;
+  contactActive = true;
+  const uint32_t now = millis();
+
+  switch (controlAt(tx, ty)) {
+    case Control::Back:
+      onGoHome();
+      return;
+    case Control::Mode:
+      strategy = (strategy.load() + 1) % static_cast<uint8_t>(Strategy::Count);
+      fullRedraw = true;
+      requestUpdate();
+      return;
+    case Control::Clear:
+      enqueue(INT16_MIN, now);
+      fullRedraw = true;
+      requestUpdate();
+      return;
+    case Control::None:
+      break;
   }
+
+  int16_t value = 0;
+  if (!keyAt(tx, ty, value)) return;
+  if (current == Strategy::Stock) {
+    stockDownMs = now;
+    stockDownValue = value;
+    highlightValue = value;
+  } else {
+    enqueue(value, now);
+  }
+  requestUpdate();
 }
 
 const fui::KeyboardLayout& TypingLabActivity::currentLayout() const {
@@ -155,19 +180,33 @@ bool TypingLabActivity::applyKey(const int16_t value) {
 }
 
 void TypingLabActivity::drawStats() const {
+  const int pageWidth = renderer.getScreenWidth();
+  const int third = pageWidth / 3;
+  const int barHeight = controlBarHeight();
+  const int labelY = MARGIN;
   char line[96];
+  snprintf(line, sizeof(line), "Mode %s", STRATEGY_NAMES[strategy.load()]);
+  renderer.drawText(UI_12_FONT_ID, MARGIN, labelY, "< Back");
+  renderer.drawCenteredText(UI_12_FONT_ID, labelY, line);
+  const int clearWidth = renderer.getTextWidth(UI_12_FONT_ID, "Clear");
+  renderer.drawText(UI_12_FONT_ID, pageWidth - MARGIN - clearWidth, labelY, "Clear");
+  renderer.drawLine(third, MARGIN / 2, third, barHeight - MARGIN / 2);
+  renderer.drawLine(2 * third, MARGIN / 2, 2 * third, barHeight - MARGIN / 2);
+  renderer.drawLine(0, barHeight - 1, pageWidth - 1, barHeight - 1);
+
+  const int smallHeight = renderer.getLineHeight(SMALL_FONT_ID);
   const uint32_t avg = refreshCount ? latencySumMs / refreshCount : 0;
-  snprintf(line, sizeof(line), "%s | key %lums avg %lums", STRATEGY_NAMES[strategy.load()],
-           static_cast<unsigned long>(lastLatencyMs), static_cast<unsigned long>(avg));
-  renderer.drawText(SMALL_FONT_ID, MARGIN, MARGIN, line);
-  snprintf(line, sizeof(line), "draw %lums panel %lums | batch %u | keys %lu", static_cast<unsigned long>(lastDrawMs),
+  snprintf(line, sizeof(line), "key %lums  avg %lums  refreshes %lu", static_cast<unsigned long>(lastLatencyMs),
+           static_cast<unsigned long>(avg), static_cast<unsigned long>(refreshCount));
+  renderer.drawText(SMALL_FONT_ID, MARGIN, barHeight + MARGIN / 2, line);
+  snprintf(line, sizeof(line), "draw %lums  panel %lums  batch %u  keys %lu", static_cast<unsigned long>(lastDrawMs),
            static_cast<unsigned long>(lastPanelMs), lastBatch, static_cast<unsigned long>(keyCount));
-  renderer.drawText(SMALL_FONT_ID, MARGIN, MARGIN + renderer.getLineHeight(SMALL_FONT_ID), line);
+  renderer.drawText(SMALL_FONT_ID, MARGIN, barHeight + MARGIN / 2 + smallHeight, line);
 }
 
 void TypingLabActivity::drawText() const {
   const int lineHeight = renderer.getLineHeight(UI_12_FONT_ID);
-  const int top = MARGIN + 2 * renderer.getLineHeight(SMALL_FONT_ID) + MARGIN;
+  const int top = controlBarHeight() + MARGIN / 2 + 2 * renderer.getLineHeight(SMALL_FONT_ID) + MARGIN;
   const int bottom = textBandBottom();
   const int maxWidth = renderer.getScreenWidth() - 2 * MARGIN;
   const int maxLines = (bottom - top) / lineHeight;
@@ -314,5 +353,8 @@ void TypingLabActivity::render(RenderLock&&) {
   if (whole) {
     latencySumMs = 0;
     refreshCount = 0;
+    keyCount = 0;
+    lastLatencyMs = lastDrawMs = lastPanelMs = 0;
+    lastBatch = 0;
   }
 }
