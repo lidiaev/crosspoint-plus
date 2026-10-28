@@ -46,6 +46,10 @@ class TypingLabActivity final : public Activity {
   uint32_t stockDownMs = 0;
   int16_t stockDownValue = INT16_MIN;
   bool contactActive = false;  // a contact was already handled; wait for lift-off
+  // Last typed key stays highlighted until the next key or an idle cleanup frame.
+  std::atomic<uint32_t> highlightShownAt{0};
+  std::atomic<bool> clearHighlight{false};
+  int16_t typedHighlight = INT16_MIN;
 
   // Render task state.
   std::string text;

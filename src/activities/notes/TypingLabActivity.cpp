@@ -1,5 +1,6 @@
 #include "TypingLabActivity.h"
 
+#include <BoardConfig.h>
 #include <GfxRenderer.h>
 #include <HalDisplay.h>
 
@@ -75,6 +76,12 @@ void TypingLabActivity::loop() {
   if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
     onGoHome();
     return;
+  }
+
+  const uint32_t shownAt = highlightShownAt.load();
+  if (shownAt != 0 && millis() - shownAt > 800 && queueTail.load() == queueHead.load() && !clearHighlight.load()) {
+    clearHighlight = true;
+    requestUpdate();
   }
 
   // Raw contact edge: act once when a finger lands, then wait for lift-off.
@@ -203,8 +210,10 @@ void TypingLabActivity::drawStats() const {
   snprintf(line, sizeof(line), "key %lums  avg %lums  refreshes %lu", static_cast<unsigned long>(lastLatencyMs),
            static_cast<unsigned long>(avg), static_cast<unsigned long>(refreshCount));
   renderer.drawText(SMALL_FONT_ID, MARGIN, barHeight + MARGIN / 2, line);
-  snprintf(line, sizeof(line), "draw %lums  panel %lums  batch %u  keys %lu", static_cast<unsigned long>(lastDrawMs),
-           static_cast<unsigned long>(lastPanelMs), lastBatch, static_cast<unsigned long>(keyCount));
+  snprintf(line, sizeof(line), "draw %lums  panel %lums  batch %u  keys %lu  ctl %u/%02X",
+           static_cast<unsigned long>(lastDrawMs), static_cast<unsigned long>(lastPanelMs), lastBatch,
+           static_cast<unsigned long>(keyCount), static_cast<unsigned>(BoardConfig::ACTIVE.displayController),
+           BoardConfig::ACTIVE.displayControllerVariant);
   renderer.drawText(SMALL_FONT_ID, MARGIN, barHeight + MARGIN / 2 + smallHeight, line);
 }
 
@@ -313,18 +322,21 @@ void TypingLabActivity::render(RenderLock&&) {
     const PendingKey key = queue[tail];
     if (batch == 0) oldestDownMs = key.downMs;
     keyboardChanged |= applyKey(key.value);
+    typedHighlight = key.value == INT16_MIN ? INT16_MIN : key.value;
     ++batch;
     tail = (tail + 1) % QUEUE_SIZE;
   }
   queueTail.store(tail, std::memory_order_release);
 
   const auto current = static_cast<Strategy>(strategy.load());
-  const int16_t highlight = highlightValue.load();
+  if (batch == 0 && clearHighlight.exchange(false)) typedHighlight = INT16_MIN;
+  // Stock shows the key while held; the others show the last typed key in the same frame as its character.
+  const int16_t highlight = current == Strategy::Stock ? highlightValue.load() : typedHighlight;
   const bool whole = fullRedraw.exchange(false);
   const int pageWidth = renderer.getScreenWidth();
   const int band = textBandBottom();
 
-  if (whole || keyboardChanged || current == Strategy::Stock) {
+  if (whole || keyboardChanged || current != Strategy::Window) {
     renderer.clearScreen();
     drawStats();
     drawText();
@@ -344,6 +356,7 @@ void TypingLabActivity::render(RenderLock&&) {
     renderer.displayBuffer(HalDisplay::FAST_REFRESH);
   }
   const uint32_t panelDone = millis();
+  highlightShownAt = (current != Strategy::Window && highlight != INT16_MIN) ? panelDone : 0;
 
   if (batch > 0 && !whole) {
     lastLatencyMs = panelDone - oldestDownMs;
