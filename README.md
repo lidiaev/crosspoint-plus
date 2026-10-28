@@ -7,6 +7,7 @@ It adds a fast, minimal Markdown **Notes** app and a simpler home screen. Everyt
 - Firmware: `crosspoint-<version>-x4pro.bin` on the [Releases](https://github.com/lidiaev/crosspoint-plus/releases) page.
   The built-in OTA updater checks this fork's releases.
 - Only the X4 Pro is supported. Use upstream CrossPoint for other devices.
+- Plan and decisions: [docs/plus/ROADMAP.md](docs/plus/ROADMAP.md) (in Russian).
 
 The upstream README follows.
 
