@@ -19,7 +19,6 @@
 #include "home/HomeActivity.h"
 #include "library/LibraryListActivity.h"
 #include "network/CrossPointWebServerActivity.h"
-#include "network/UsbDriveActivity.h"
 #include "reader/ReaderActivity.h"
 #include "settings/SettingsActivity.h"
 #include "util/BmpViewerActivity.h"
@@ -244,19 +243,6 @@ void ActivityManager::replaceActivity(std::unique_ptr<Activity>&& newActivity) {
 
 void ActivityManager::goToFileTransfer() {
   replaceActivity(std::make_unique<CrossPointWebServerActivity>(renderer, mappedInput));
-}
-
-void ActivityManager::goToUsbDrive() {
-#if FREEINK_CAP_USB_MSC
-  auto activity = makeUniqueNoThrow<UsbDriveActivity>(renderer, mappedInput);
-  if (!activity) {
-    LOG_ERR("ACT", "OOM: USB Drive activity");
-    return;
-  }
-  replaceActivity(std::move(activity));
-#else
-  LOG_ERR("ACT", "USB Drive requested in a build without USB Drive capability");
-#endif
 }
 
 void ActivityManager::goToSettings() { replaceActivity(std::make_unique<SettingsActivity>(renderer, mappedInput)); }

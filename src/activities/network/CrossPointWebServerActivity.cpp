@@ -13,7 +13,6 @@
 #include "NetworkModeSelectionActivity.h"
 #include "SilentRestart.h"
 #include "WifiSelectionActivity.h"
-#include "activities/network/CalibreConnectActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "util/QrUtils.h"
@@ -121,44 +120,11 @@ void CrossPointWebServerActivity::onExit() {
 }
 
 void CrossPointWebServerActivity::onNetworkModeSelected(const NetworkMode mode) {
-  const char* modeName = "Join Network";
-  if (mode == NetworkMode::CONNECT_CALIBRE) {
-    modeName = "Connect to Calibre";
-  } else if (mode == NetworkMode::CREATE_HOTSPOT) {
-    modeName = "Create Hotspot";
-#if FREEINK_CAP_USB_MSC
-  } else if (mode == NetworkMode::USB_DRIVE) {
-    modeName = "USB Drive";
-#endif
-  }
-  LOG_DBG("WEBACT", "Network mode selected: %s", modeName);
-
-#if FREEINK_CAP_USB_MSC
-  if (mode == NetworkMode::USB_DRIVE) {
-    activityManager.goToUsbDrive();
-    return;
-  }
-#endif
+  LOG_DBG("WEBACT", "Network mode selected: %s",
+          mode == NetworkMode::CREATE_HOTSPOT ? "Create Hotspot" : "Join Network");
 
   networkMode = mode;
   isApMode = (mode == NetworkMode::CREATE_HOTSPOT);
-
-  if (mode == NetworkMode::CONNECT_CALIBRE) {
-    startActivityForResult(
-        std::make_unique<CalibreConnectActivity>(renderer, mappedInput), [this](const ActivityResult& result) {
-          state = WebServerActivityState::MODE_SELECTION;
-
-          startActivityForResult(std::make_unique<NetworkModeSelectionActivity>(renderer, mappedInput),
-                                 [this](const ActivityResult& result) {
-                                   if (result.isCancelled) {
-                                     onGoHome();
-                                   } else {
-                                     onNetworkModeSelected(std::get<NetworkModeResult>(result.data).mode);
-                                   }
-                                 });
-        });
-    return;
-  }
 
   if (mode == NetworkMode::JOIN_NETWORK) {
     // STA mode - launch WiFi selection
