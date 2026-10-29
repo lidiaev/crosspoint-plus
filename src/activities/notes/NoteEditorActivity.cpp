@@ -28,6 +28,7 @@ constexpr int MARGIN = 14;
 constexpr int TEXT_FONT = NOTOSANS_12_FONT_ID;  // has italic, unlike the UI font
 constexpr int BOX_GAP = 10;                     // after a checkbox
 constexpr int QUOTE_WIDTH = 14;
+constexpr int CODE_PAD = 6;                 // a backtick's width: room for the frame around code
 constexpr uint32_t CLEANUP_IDLE_MS = 1200;  // idle repaint + autosave after this pause
 constexpr uint32_t RESTORE_IDLE_MS = 300;   // the pressed key returns to normal after this pause
 constexpr uint32_t REPEAT_DELAY_MS = 450;
@@ -271,6 +272,8 @@ int NoteEditorActivity::widthAt(const size_t i, const uint32_t cp) {
       return QUOTE_WIDTH;
     case note_md::Glyph::Rule:
       return 0;
+    case note_md::Glyph::CodeEdge:
+      return CODE_PAD;
     case note_md::Glyph::None:
       break;
   }
@@ -553,6 +556,7 @@ void NoteEditorActivity::drawGlyph(const uint8_t attr, const int x, const int y)
     case note_md::Glyph::Rule:
       renderer.drawLine(MARGIN, y + lineHeight / 2, renderer.getScreenWidth() - MARGIN, y + lineHeight / 2, 2, true);
       break;
+    case note_md::Glyph::CodeEdge:  // padding inside the code frame
     case note_md::Glyph::None:
       break;
   }
@@ -574,6 +578,12 @@ void NoteEditorActivity::drawText() {
     int runX = x;
     uint8_t runAttr = 0;
     int cursorX = -1;
+    int codeX = -1;  // left edge of the open code frame on this line
+    const auto closeCode = [&]() {
+      if (codeX < 0) return;
+      renderer.drawRoundedRect(codeX, y + 2, x - codeX, lineHeight - 3, 1, 4, true);
+      codeX = -1;
+    };
     const auto flush = [&]() {
       if (run.empty()) return;
       renderer.drawText(TEXT_FONT, runX, y, run.c_str(), true,
@@ -592,6 +602,8 @@ void NoteEditorActivity::drawText() {
         i += len;
         continue;
       }
+      if ((a & note_md::CODE) && codeX < 0) codeX = x;
+      if (!(a & note_md::CODE) && codeX >= 0) closeCode();
       if (note_md::glyphOf(a) != note_md::Glyph::None) {
         flush();
         drawGlyph(a, x, y);
@@ -608,6 +620,7 @@ void NoteEditorActivity::drawText() {
       i += len;
     }
     flush();
+    closeCode();
     if (l == cursorLine) renderer.fillRect(cursorX >= 0 ? cursorX : x, y, 2, lineHeight);
     y += lineHeight;
   }

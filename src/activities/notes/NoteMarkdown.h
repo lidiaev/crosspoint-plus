@@ -20,7 +20,8 @@ inline constexpr uint8_t STRIKE = 0x40;
 inline constexpr uint8_t CODE = 0x80;  // inside `code`: no inline markup
 
 // A list or block marker drawn in place of its first byte.
-enum class Glyph : uint8_t { None, Bullet, Box, BoxChecked, Quote, Rule };
+// CodeEdge is a backtick drawn as the padding of the frame around `code`.
+enum class Glyph : uint8_t { None, Bullet, Box, BoxChecked, Quote, Rule, CodeEdge };
 
 inline Glyph glyphOf(const uint8_t attr) { return static_cast<Glyph>((attr & GLYPH_MASK) >> GLYPH_SHIFT); }
 
@@ -30,9 +31,9 @@ void style(const std::string& text, size_t rawStart, std::vector<uint8_t>& attrs
 
 // The list marker that opens the paragraph [start, end), if any.
 struct ListPrefix {
-  size_t length = 0;  // bytes of indent and marker; 0 = not a list item
-  std::string next;   // marker for the item after it ("- ", "- [ ] ", "3. ")
-  bool empty = false; // nothing after the marker
+  size_t length = 0;   // bytes of indent and marker; 0 = not a list item
+  std::string next;    // marker for the item after it ("- ", "- [ ] ", "3. ")
+  bool empty = false;  // nothing after the marker
 };
 ListPrefix listPrefix(const std::string& text, size_t start, size_t end);
 

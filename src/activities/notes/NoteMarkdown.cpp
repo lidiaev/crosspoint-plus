@@ -31,6 +31,8 @@ void inlineSpans(const std::string& text, const size_t from, const size_t to, st
     const size_t close = text.find('`', i + 1);
     if (close == std::string::npos || close >= to) break;
     apply(attrs, i, close + 1, CODE);
+    setGlyph(attrs, i, Glyph::CodeEdge);
+    setGlyph(attrs, close, Glyph::CodeEdge);
     i = close;
   }
 
@@ -117,6 +119,8 @@ void paragraph(const std::string& text, const size_t start, const size_t end, st
     const size_t content = std::min(i + 6, end);
     hide(attrs, i + 1, content);
     inlineSpans(text, content, end, attrs);
+    // A done task is struck through.
+    if (text[i + 3] != ' ') apply(attrs, content, end, STRIKE);
     return;
   }
   if (isBullet(text, i, end)) {

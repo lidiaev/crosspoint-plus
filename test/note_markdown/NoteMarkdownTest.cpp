@@ -21,12 +21,26 @@ std::string shown(const std::string& text, size_t rawStart = std::string::npos) 
       open = s;
     }
     switch (glyphOf(a)) {
-      case Glyph::Bullet: out += "•"; continue;
-      case Glyph::Box: out += "☐"; continue;
-      case Glyph::BoxChecked: out += "☑"; continue;
-      case Glyph::Quote: out += "▌"; continue;
-      case Glyph::Rule: out += "──"; continue;
-      case Glyph::None: break;
+      case Glyph::Bullet:
+        out += "•";
+        continue;
+      case Glyph::Box:
+        out += "☐";
+        continue;
+      case Glyph::BoxChecked:
+        out += "☑";
+        continue;
+      case Glyph::Quote:
+        out += "▌";
+        continue;
+      case Glyph::Rule:
+        out += "──";
+        continue;
+      case Glyph::CodeEdge:
+        out += "|";
+        continue;
+      case Glyph::None:
+        break;
     }
     out += text[i];
   }
@@ -55,12 +69,15 @@ TEST(NoteMarkdown, LoneStarsStay) {
   EXPECT_EQ(shown("**"), "**");
 }
 
-TEST(NoteMarkdown, CodeIsLiteral) { EXPECT_EQ(shown("`a*b*c`"), "`a*b*c`"); }
+TEST(NoteMarkdown, CodeIsLiteralAndFramed) {
+  EXPECT_EQ(shown("x `a*b*c` y"), "x |a*b*c| y");
+  EXPECT_EQ(shown("`a`", 0), "`a`");
+}
 
 TEST(NoteMarkdown, Lists) {
   EXPECT_EQ(shown("- milk"), "• milk");
   EXPECT_EQ(shown("- [ ] milk"), "☐milk");
-  EXPECT_EQ(shown("- [x] milk"), "☑milk");
+  EXPECT_EQ(shown("- [x] milk"), "☑~{milk}");
   EXPECT_EQ(shown("  - nested"), "  • nested");
 }
 
