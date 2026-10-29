@@ -1,8 +1,8 @@
 # Regenerate from the repository root with:
 #   python3 freeink-sdk/libs/assets/Icons/tools/gen_icons.py \
-#     --manifest src/components/icons/notesIcons.manifest \
+#     --manifest src/components/icons/plusIcons.manifest \
 #     --svgdir freeink-sdk/libs/assets/Icons/lucide/icons \
-#     --sizes 32 --out src/components/icons/notesIcons.h
+#     --sizes 32 --out src/components/icons/plusIcons.h
 note-new = plus
 keyboard = keyboard
 keyboard-off = keyboard-off

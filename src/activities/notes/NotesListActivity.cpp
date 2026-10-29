@@ -18,7 +18,7 @@
 #include "components/UITheme.h"
 #include "components/UiAppHelpers.h"
 #include "components/icons/headerIcons.h"
-#include "components/icons/notesIcons.h"
+#include "components/icons/plusIcons.h"
 #include "components/icons/search32.h"
 #include "fontIds.h"
 

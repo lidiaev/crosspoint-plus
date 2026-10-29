@@ -20,7 +20,7 @@
 #include "components/icons/folder.h"
 #include "components/icons/hotspot.h"
 #include "components/icons/library.h"
-#include "components/icons/notesIcons.h"
+#include "components/icons/plusIcons.h"
 #include "components/icons/recent.h"
 #include "components/icons/settings2.h"
 #include "components/icons/wifi.h"

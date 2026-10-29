@@ -18,7 +18,7 @@
 #include "activities/RenderLock.h"
 #include "components/UITheme.h"
 #include "components/icons/keyboardIcons.h"
-#include "components/icons/notesIcons.h"
+#include "components/icons/plusIcons.h"
 #include "components/typing/FastTyping.h"
 #include "fontIds.h"
 
