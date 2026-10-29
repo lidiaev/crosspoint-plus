@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 
+#include "NoteMarkdown.h"
 #include "activities/Activity.h"
 #include "components/typing/TouchTracker.h"
 #include "components/typing/TypingKeyboard.h"
@@ -67,12 +68,16 @@ class NoteEditorActivity final : public Activity {
   bool dirty = false;
   TypingKeyboard keyboard;
   int16_t pressedKey = INT16_MIN;
-  std::vector<uint32_t> lineStarts;  // byte offset of each wrapped line
-  std::vector<uint8_t> attrs;        // note_md attributes, one per byte of text
-  bool styleStale = true;            // text changed since attrs were computed
+  std::vector<uint32_t> lineStarts;    // byte offset of each wrapped line
+  std::vector<uint8_t> lineFonts;      // font slot of each wrapped line (headings are larger)
+  std::vector<uint8_t> attrs;          // note_md attributes, one per byte of text
+  std::vector<note_md::Block> blocks;  // fenced code blocks
+  bool styleStale = true;              // text changed since attrs were computed
   int topLine = 0;
   static constexpr uint32_t CACHED_CPS = 0x460;
-  uint8_t widthCache[4][CACHED_CPS] = {};  // advance per style and code point, 0 = unknown
+  static constexpr int FONT_SLOTS = 3;  // body, heading 2, heading 1
+  // Advance per font slot, style and code point, 0 = unknown.
+  uint8_t widthCache[FONT_SLOTS][4][CACHED_CPS] = {};
 
   void enqueue(const Event& event);
   bool popEvent(Event& event);
@@ -87,14 +92,17 @@ class NoteEditorActivity final : public Activity {
   int headerHeight() const;
   int textTop() const;
   int textBottom() const;
-  int visibleLines() const;
-  int advance(uint32_t cp, uint8_t style);
-  int widthAt(size_t i, uint32_t cp);
+  int lineHeight(int line) const;
+  int lineAtY(int y) const;  // wrapped line under screen y (may be past the last line)
+  int maxTopLine() const;    // the top line that brings the last line to the bottom
+  int linesFrom(int top) const;
+  int advance(uint32_t cp, uint8_t style, uint8_t font);
+  int widthAt(size_t i, uint32_t cp, uint8_t font);
   int boxSize() const;
   void restyle();
   bool toggleCheckboxAt(int x, int y);
   void insertNewline();
-  void drawGlyph(uint8_t attr, int x, int y);
+  void drawGlyph(uint8_t attr, int x, int y, int lineHeight);
   void wrap();
   int lineOf(size_t offset) const;
   void keepCursorVisible();

@@ -74,6 +74,36 @@ TEST(NoteMarkdown, CodeIsLiteralAndFramed) {
   EXPECT_EQ(shown("`a`", 0), "`a`");
 }
 
+TEST(NoteMarkdown, FencedCodeBlock) {
+  const std::string t = "a\n```js\nx *y* # z\n```\nb";
+  std::vector<uint8_t> attrs;
+  std::vector<Block> blocks;
+  style(t, std::string::npos, attrs, &blocks);
+  ASSERT_EQ(blocks.size(), 1u);
+  EXPECT_EQ(blocks[0].start, 2u);
+  EXPECT_EQ(blocks[0].end, t.size() - 2);
+  EXPECT_EQ(shown(t), "a\n\nx *y* # z\n\nb");
+  EXPECT_EQ(shown(t, 2), "a\n```js\nx *y* # z\n\nb");
+}
+
+TEST(NoteMarkdown, UnclosedFenceRunsToTheEnd) {
+  std::vector<uint8_t> attrs;
+  std::vector<Block> blocks;
+  style("```\ncode", std::string::npos, attrs, &blocks);
+  ASSERT_EQ(blocks.size(), 1u);
+  EXPECT_EQ(blocks[0].end, 8u);
+}
+
+TEST(NoteMarkdown, HeadingLevel) {
+  std::vector<uint8_t> attrs;
+  const std::string t = "# A\n### B\n#C\n```\n# D\n```";
+  style(t, std::string::npos, attrs);
+  EXPECT_EQ(headingLevel(t, attrs, 0), 1);
+  EXPECT_EQ(headingLevel(t, attrs, 4), 3);
+  EXPECT_EQ(headingLevel(t, attrs, 10), 0);
+  EXPECT_EQ(headingLevel(t, attrs, 17), 0);
+}
+
 TEST(NoteMarkdown, Lists) {
   EXPECT_EQ(shown("- milk"), "• milk");
   EXPECT_EQ(shown("- [ ] milk"), "☐milk");
