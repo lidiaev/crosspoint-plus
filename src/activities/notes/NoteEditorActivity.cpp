@@ -2,7 +2,6 @@
 
 #include <GfxRenderer.h>
 #include <HalDisplay.h>
-#include <I18n.h>
 #include <Logging.h>
 #include <Memory.h>
 
@@ -20,6 +19,7 @@
 #include "components/UITheme.h"
 #include "components/icons/keyboardIcons.h"
 #include "components/icons/plusIcons.h"
+#include "components/icons/selectionIcons.h"
 #include "components/typing/FastTyping.h"
 #include "fontIds.h"
 
@@ -29,9 +29,8 @@ namespace {
 constexpr int MARGIN = 14;
 constexpr int BOX_GAP = 10;  // after a checkbox
 constexpr int QUOTE_WIDTH = 14;
-constexpr int CODE_PAD = 6;                 // a backtick's width: room for the frame around code
-constexpr uint32_t CLEANUP_IDLE_MS = 1200;  // idle repaint + autosave after this pause
-constexpr uint32_t RESTORE_IDLE_MS = 300;   // the pressed key returns to normal after this pause
+constexpr int CODE_PAD = 6;                // a backtick's width: room for the frame around code
+constexpr uint32_t RESTORE_IDLE_MS = 300;  // the pressed key returns to normal after this pause
 constexpr uint32_t REPEAT_DELAY_MS = 450;
 constexpr int TOOLBAR_HEIGHT = 52;            // format buttons above the keyboard
 constexpr uint32_t TYPING_ACTIVE_MS = 2000;   // full-speed loop after the last touch
@@ -178,7 +177,8 @@ void NoteEditorActivity::loop() {
     update = true;
   }
   const uint32_t editAt = lastEditFrameAt.load();
-  if (editAt != 0 && now - editAt > CLEANUP_IDLE_MS && queueEmpty && !touch.anyDown() && !cleanupFrame.load()) {
+  if (editAt != 0 && now - editAt > fast_typing::cleanupDelayMs() && queueEmpty && !touch.anyDown() &&
+      !cleanupFrame.load()) {
     cleanupFrame = true;
     update = true;
   }
@@ -195,6 +195,13 @@ void NoteEditorActivity::loop() {
         enqueue(Event{EventType::ToggleKeyboard, 0, p.x, p.y, p.downMs});
         update = true;
       }
+      continue;
+    }
+    // The callout floats over the text and wins over whatever lies under it.
+    if (p.x >= calloutLeft.load() && p.x < calloutRight.load() && p.y >= calloutTop.load() &&
+        p.y < calloutBottom.load()) {
+      enqueue(Event{EventType::Callout, 0, p.x, p.y, p.downMs});
+      update = true;
       continue;
     }
     // The toolbar is checked before the keyboard, whose keys reach a little past their edges.
@@ -701,21 +708,18 @@ void NoteEditorActivity::paste() {
   pasteMenu = false;
 }
 
-// The toolbar's buttons for the current state, left to right.
-int NoteEditorActivity::tools(Tool out[MAX_TOOLS]) const {
+// The callout's actions for the current state, left to right; none without a selection or Paste offer.
+int NoteEditorActivity::actions(Tool out[MAX_ACTIONS]) const {
   int n = 0;
   if (hasSelection()) {
     out[n++] = Tool::Copy;
-    out[n++] = Tool::Cut;
-    if (!clipboard::empty()) out[n++] = Tool::Paste;
+    // Cut and Paste change the text: only while editing.
+    if (keyboardShown.load()) out[n++] = Tool::Cut;
+    if (keyboardShown.load() && !clipboard::empty()) out[n++] = Tool::Paste;
     out[n++] = Tool::SelectAll;
   } else if (pasteMenu) {
     out[n++] = Tool::Paste;
     out[n++] = Tool::SelectAll;
-  } else {
-    out[n++] = Tool::Checkbox;
-    out[n++] = Tool::List;
-    out[n++] = Tool::Heading;
   }
   return n;
 }
@@ -773,16 +777,11 @@ void NoteEditorActivity::handleEvent(const Event& event, bool& layoutChanged) {
     case EventType::LongPress: {
       // Holding the cursor with something copied offers Paste instead of selecting.
       const size_t at = offsetAt(event.x, event.y);
-      if (event.type == EventType::LongPress && !hasSelection() && !clipboard::empty() &&
+      if (event.type == EventType::LongPress && keyboardShown.load() && !hasSelection() && !clipboard::empty() &&
           (at == cursor || text_select::wordAt(text, at).empty())) {
         pasteMenu = true;
       } else {
         selectWord(event.x, event.y);
-      }
-      // The toolbar with the actions comes with the keyboard.
-      if (!keyboardShown.load()) {
-        keyboardShown = true;
-        fullRedraw = true;
       }
       break;
     }
@@ -790,10 +789,7 @@ void NoteEditorActivity::handleEvent(const Event& event, bool& layoutChanged) {
       selectTo(static_cast<Drag>(event.value), event.x, event.y);
       break;
     case EventType::ToggleKeyboard:
-      if (keyboardShown.load()) {
-        clearSelection();
-        pasteMenu = false;
-      }
+      pasteMenu = false;
       keyboardShown = !keyboardShown.load();
       fullRedraw = true;
       keepCursorVisible();
@@ -808,11 +804,19 @@ void NoteEditorActivity::handleEvent(const Event& event, bool& layoutChanged) {
       topLine = std::clamp(topLine + event.value, 0, maxTopLine());
       break;
     case EventType::Toolbar: {
-      Tool list[MAX_TOOLS];
-      const int n = tools(list);
-      applyTool(list[std::clamp(event.x * n / renderer.getScreenWidth(), 0, n - 1)]);
+      static constexpr Tool FORMATS[FORMAT_COUNT] = {Tool::Checkbox, Tool::List, Tool::Heading};
+      applyTool(FORMATS[std::clamp(event.x * FORMAT_COUNT / renderer.getScreenWidth(), 0, FORMAT_COUNT - 1)]);
       if (autoCapitalize()) layoutChanged = true;
       keepCursorVisible();
+      break;
+    }
+    case EventType::Callout: {
+      Tool list[MAX_ACTIONS];
+      const int n = actions(list);
+      const int item = callout.itemAt(event.x, event.y);
+      if (item < 0 || item >= n) break;
+      applyTool(list[item]);
+      if (autoCapitalize()) layoutChanged = true;
       break;
     }
   }
@@ -840,45 +844,50 @@ void NoteEditorActivity::drawHeader() const {
 }
 
 void NoteEditorActivity::drawToolbar() const {
-  Tool list[MAX_TOOLS];
-  const int n = tools(list);
+  static const freeink::Icon* const ICONS[FORMAT_COUNT] = {&icon_fmt_checkbox_28, &icon_fmt_list_28,
+                                                           &icon_fmt_heading_28};
   const int top = toolbarTop();
   const int width = renderer.getScreenWidth();
+  for (int i = 0; i < FORMAT_COUNT; ++i) {
+    const freeink::Icon& icon = *ICONS[i];
+    const int cx = width * (2 * i + 1) / (2 * FORMAT_COUNT);
+    renderer.drawIconUpright(icon.bits, cx - icon.w / 2, top + (TOOLBAR_HEIGHT - icon.h) / 2, icon.w, icon.h);
+  }
+}
+
+// Places and draws the callout for the selection (or the Paste offer at the cursor) and publishes its rectangle.
+void NoteEditorActivity::drawCallout(const int startX, const int startTop, const int endX, const int endBottom) {
+  Tool list[MAX_ACTIONS];
+  const int n = actions(list);
+  callout.place(n, startX, startTop, endX, endBottom, textTop(), textBottom(), renderer.getScreenWidth());
+  const freeink::Icon* icons[MAX_ACTIONS] = {};
   for (int i = 0; i < n; ++i) {
-    const int cx = width * (2 * i + 1) / (2 * n);
-    const freeink::Icon* icon = nullptr;
-    const char* label = nullptr;
     switch (list[i]) {
-      case Tool::Checkbox:
-        icon = &icon_fmt_checkbox_28;
-        break;
-      case Tool::List:
-        icon = &icon_fmt_list_28;
-        break;
-      case Tool::Heading:
-        icon = &icon_fmt_heading_28;
-        break;
       case Tool::Copy:
-        label = tr(STR_COPY);
+        icons[i] = &icon_sel_copy_24;
         break;
       case Tool::Cut:
-        label = tr(STR_CUT);
+        icons[i] = &icon_sel_cut_24;
         break;
       case Tool::Paste:
-        label = tr(STR_PASTE);
+        icons[i] = &icon_sel_paste_24;
         break;
       case Tool::SelectAll:
-        label = tr(STR_SELECT_ALL);
+        icons[i] = &icon_sel_select_all_24;
+        break;
+      case Tool::Checkbox:
+      case Tool::List:
+      case Tool::Heading:
         break;
     }
-    if (icon != nullptr) {
-      renderer.drawIconUpright(icon->bits, cx - icon->w / 2, top + (TOOLBAR_HEIGHT - icon->h) / 2, icon->w, icon->h);
-    } else {
-      const int textWidth = renderer.getTextWidth(fonts[0], label);
-      renderer.drawText(fonts[0], cx - textWidth / 2, top + (TOOLBAR_HEIGHT - renderer.getLineHeight(fonts[0])) / 2,
-                        label);
-    }
   }
+  callout.draw(renderer, icons);
+  int left = 0, top = 0, right = 0, bottom = 0;
+  callout.bounds(left, top, right, bottom);
+  calloutLeft = static_cast<int16_t>(left);
+  calloutTop = static_cast<int16_t>(top);
+  calloutRight = static_cast<int16_t>(right);
+  calloutBottom = static_cast<int16_t>(bottom);
 }
 
 // iPhone-style handle: a bar on the boundary with a knob above the start or below the end.
@@ -928,6 +937,9 @@ void NoteEditorActivity::drawText() {
   const int startLine = selected ? lineOf(selection.start) : -1;
   const int endLine = selected ? lineOf(selection.end) : -1;
   int16_t startX = OFF_SCREEN, startY = OFF_SCREEN, endX = OFF_SCREEN, endY = OFF_SCREEN;
+  // The callout's anchor: off-screen ends fall back to the edges of the text area.
+  int anchorStartX = renderer.getScreenWidth() / 2, anchorTop = textTop();
+  int anchorEndX = anchorStartX, anchorBottom = textBottom();
   std::string run;
   int y = textTop();
   for (int l = topLine; l < last; ++l) {
@@ -1001,16 +1013,27 @@ void NoteEditorActivity::drawText() {
     if (l == endLine && selEndX < 0) selEndX = caretX();
     flush();
     closeCode();
-    if (l == cursorLine) renderer.fillRect(cursorX - 1, y, 2, rowHeight);  // centered on the boundary
+    if (l == cursorLine) {
+      renderer.fillRect(cursorX - 1, y, 2, rowHeight);  // centered on the boundary
+      if (pasteMenu) {
+        anchorStartX = anchorEndX = cursorX;
+        anchorTop = y;
+        anchorBottom = y + rowHeight;
+      }
+    }
     if (l == startLine) {
       drawHandle(selStartX, y, rowHeight, true);
       startX = static_cast<int16_t>(selStartX);
       startY = static_cast<int16_t>(y + rowHeight / 2);
+      anchorStartX = selStartX;
+      anchorTop = y;
     }
     if (l == endLine) {
       drawHandle(selEndX, y, rowHeight, false);
       endX = static_cast<int16_t>(selEndX);
       endY = static_cast<int16_t>(y + rowHeight / 2);
+      anchorEndX = selEndX;
+      anchorBottom = y + rowHeight;
     }
     y += rowHeight;
   }
@@ -1019,6 +1042,7 @@ void NoteEditorActivity::drawText() {
   endHandleX = endX;
   endHandleY = endY;
   selectionShown = selected;
+  drawCallout(anchorStartX, anchorTop, anchorEndX, anchorBottom);
 }
 
 void NoteEditorActivity::render(RenderLock&&) {

@@ -356,6 +356,10 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   // Keyboard (Settings > System > Keyboard).
   uint8_t keyboardAutoCapitalize = 1;
   uint8_t keyboardDoubleSpacePeriod = 1;
+  // Screen while typing: 0 = faster, 1 = balanced, 2 = cleaner (longer refresh frames).
+  uint8_t typingRefresh = 0;
+  // Pause before the clean repaint while typing: 0 = 0.6 s, 1 = 1.2 s, 2 = 3 s.
+  uint8_t typingCleanDelay = 1;
   // Language setting (Language enum index, default 0 = EN)
   uint8_t language = 0;
   // Quick Resume: keep current content visible with moon icon instead of showing a static sleep screen.

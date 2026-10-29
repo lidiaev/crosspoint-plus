@@ -10,7 +10,9 @@
 #include "MappedInputManager.h"
 #include "components/UITheme.h"
 #include "components/icons/plusIcons.h"
+#include "components/icons/selectionIcons.h"
 #include "components/typing/FastTyping.h"
+#include "components/typing/TextSelection.h"
 #include "fontIds.h"
 
 namespace fui = freeink::ui;
@@ -19,11 +21,12 @@ namespace {
 constexpr int MARGIN = 14;
 constexpr int FONT = UI_12_FONT_ID;
 constexpr int ICON = 32;
-constexpr uint32_t CLEANUP_IDLE_MS = 1200;
 constexpr uint32_t RESTORE_IDLE_MS = 300;
 constexpr uint32_t REPEAT_DELAY_MS = 450;
 constexpr uint32_t TYPING_ACTIVE_MS = 2000;  // full-speed loop after the last touch
 constexpr uint32_t ALTERNATE_DELAY_MS = 450;
+constexpr uint32_t LONG_PRESS_MS = 500;
+constexpr int HOLD_SLOP = 16;
 constexpr const char* MASK = "•";
 
 size_t codePointBytes(const std::string& s, const size_t i) {
@@ -95,7 +98,8 @@ void KeyboardEntryActivity::loop() {
     update = true;
   }
   const uint32_t editAt = lastEditFrameAt.load();
-  if (editAt != 0 && now - editAt > CLEANUP_IDLE_MS && queueEmpty && !touch.anyDown() && !cleanupFrame.load()) {
+  if (editAt != 0 && now - editAt > fast_typing::cleanupDelayMs() && queueEmpty && !touch.anyDown() &&
+      !cleanupFrame.load()) {
     cleanupFrame = true;
     update = true;
   }
@@ -115,6 +119,11 @@ void KeyboardEntryActivity::loop() {
       }
       continue;
     }
+    if (p.x >= calloutLeft && p.x < calloutRight && p.y >= calloutTop && p.y < calloutBottom) {
+      enqueue(Event{EventType::Callout, 0, p.downMs, p.x, p.y});
+      update = true;
+      continue;
+    }
     int16_t value = 0;
     if (keyboard.keyAt(p.x, p.y, value)) {
       touch.setPressedValue(touch.pressSlot(i), value);
@@ -128,6 +137,25 @@ void KeyboardEntryActivity::loop() {
     } else if (p.y >= fieldTop && p.y < fieldBottom) {
       const bool onEye = inputType == InputType::Password && p.x >= renderer.getScreenWidth() - MARGIN - ICON - MARGIN;
       enqueue(Event{onEye ? EventType::TogglePassword : EventType::TapField, 0, p.downMs, p.x, p.y});
+      update = true;
+      if (!onEye) {
+        holdSlot = static_cast<int8_t>(touch.pressSlot(i));
+        holdDownMs = p.downMs;
+        holdX = p.x;
+        holdY = p.y;
+      }
+    }
+  }
+
+  if (holdSlot >= 0) {
+    int16_t x = 0;
+    int16_t y = 0;
+    if (!touch.position(static_cast<uint8_t>(holdSlot), holdDownMs, x, y) || std::abs(x - holdX) >= HOLD_SLOP ||
+        std::abs(y - holdY) >= HOLD_SLOP) {
+      holdSlot = -1;
+    } else if (now - holdDownMs >= LONG_PRESS_MS) {
+      enqueue(Event{EventType::HoldField, 0, now, holdX, holdY});
+      holdSlot = -1;
       update = true;
     }
   }
@@ -253,7 +281,18 @@ void KeyboardEntryActivity::handleEvent(const Event& event) {
   switch (event.type) {
     case EventType::Key: {
       char out[4] = {};
-      switch (keyboard.press(event.value, event.downMs, out)) {
+      const TypingKeyboard::Action action = keyboard.press(event.value, event.downMs, out);
+      if (action == TypingKeyboard::Action::Insert || action == TypingKeyboard::Action::Backspace) {
+        editOffer = false;
+        // Typing over Select all replaces the text; Backspace clears it.
+        if (allSelected) {
+          allSelected = false;
+          text.clear();
+          cursor = 0;
+          if (action == TypingKeyboard::Action::Backspace) break;
+        }
+      }
+      switch (action) {
         case TypingKeyboard::Action::Insert:
           insertText(out);
           break;
@@ -278,8 +317,19 @@ void KeyboardEntryActivity::handleEvent(const Event& event) {
       passwordVisible = !passwordVisible;
       break;
     case EventType::TapField:
+      allSelected = editOffer = false;
       placeCursor(event.x, event.y);
       break;
+    case EventType::HoldField:
+      editOffer = true;
+      break;
+    case EventType::Callout: {
+      Action list[MAX_ACTIONS];
+      const int n = actions(list);
+      const int item = callout.itemAt(event.x, event.y);
+      if (item >= 0 && item < n) applyAction(list[item]);
+      break;
+    }
     case EventType::Done:
       done = true;
       break;
@@ -305,16 +355,24 @@ void KeyboardEntryActivity::drawField() {
 
   int y = top;
   std::string segment;
+  int caretX = MARGIN;
+  int caretTop = top;
+  int lastX = MARGIN;
   for (int l = firstLine; l < last; ++l) {
     const size_t start = lineStarts[l];
     const size_t end = l + 1 < lines ? lineStarts[l + 1] : shown.size();
     segment.assign(shown, start, end - start);
-    renderer.drawText(FONT, MARGIN, y, segment.c_str());
+    // Select all draws the text white on black, without the cursor.
+    const int segmentWidth = renderer.getTextAdvanceX(FONT, segment.c_str(), EpdFontFamily::REGULAR);
+    if (allSelected && !segment.empty()) renderer.fillRect(MARGIN, y, segmentWidth, lineHeight);
+    renderer.drawText(FONT, MARGIN, y, segment.c_str(), !allSelected);
+    lastX = MARGIN + segmentWidth;
     if (l == cursorLine) {
       // Measured as drawn (with kerning) and centered on the boundary.
       segment.resize(caret - start);
-      renderer.fillRect(MARGIN + renderer.getTextAdvanceX(FONT, segment.c_str(), EpdFontFamily::REGULAR) - 1, y, 2,
-                        lineHeight);
+      caretX = MARGIN + renderer.getTextAdvanceX(FONT, segment.c_str(), EpdFontFamily::REGULAR);
+      caretTop = y;
+      if (!allSelected) renderer.fillRect(caretX - 1, y, 2, lineHeight);
     }
     y += lineHeight;
   }
@@ -325,6 +383,84 @@ void KeyboardEntryActivity::drawField() {
   }
   fieldBottom = y + MARGIN / 2;
   renderer.drawLine(MARGIN, fieldBottom, width - MARGIN, fieldBottom);
+  if (allSelected) {
+    drawCallout(MARGIN, top, lastX, y);
+  } else {
+    drawCallout(caretX, caretTop, caretX, caretTop + lineHeight);
+  }
+}
+
+// The callout's actions, left to right; none while it is closed. A hidden
+// password is never copied.
+int KeyboardEntryActivity::actions(Action out[MAX_ACTIONS]) const {
+  int n = 0;
+  const bool copyable = inputType != InputType::Password || passwordVisible;
+  if (allSelected) {
+    if (copyable) out[n++] = Action::Copy;
+    if (copyable) out[n++] = Action::Cut;
+    if (!clipboard::empty()) out[n++] = Action::Paste;
+  } else if (editOffer) {
+    if (!text.empty()) out[n++] = Action::SelectAll;
+    if (!clipboard::empty()) out[n++] = Action::Paste;
+  }
+  return n;
+}
+
+void KeyboardEntryActivity::applyAction(const Action action) {
+  switch (action) {
+    case Action::Copy:
+      clipboard::set(text);
+      allSelected = false;
+      break;
+    case Action::Cut:
+      clipboard::set(text);
+      text.clear();
+      cursor = 0;
+      allSelected = false;
+      break;
+    case Action::Paste: {
+      if (allSelected) {
+        text.clear();
+        cursor = 0;
+        allSelected = false;
+      }
+      // Fields hold one paragraph: line breaks become spaces.
+      std::string pasted = clipboard::get();
+      std::replace(pasted.begin(), pasted.end(), '\n', ' ');
+      insertText(pasted.c_str());
+      break;
+    }
+    case Action::SelectAll:
+      allSelected = true;
+      cursor = text.size();
+      break;
+  }
+  editOffer = false;
+}
+
+void KeyboardEntryActivity::drawCallout(const int startX, const int startTop, const int endX, const int endBottom) {
+  Action list[MAX_ACTIONS];
+  const int n = actions(list);
+  callout.place(n, startX, startTop, endX, endBottom, fieldTop, keyboard.rect(renderer).y, renderer.getScreenWidth());
+  const freeink::Icon* icons[MAX_ACTIONS] = {};
+  for (int i = 0; i < n; ++i) {
+    switch (list[i]) {
+      case Action::Copy:
+        icons[i] = &icon_sel_copy_24;
+        break;
+      case Action::Cut:
+        icons[i] = &icon_sel_cut_24;
+        break;
+      case Action::Paste:
+        icons[i] = &icon_sel_paste_24;
+        break;
+      case Action::SelectAll:
+        icons[i] = &icon_sel_select_all_24;
+        break;
+    }
+  }
+  callout.draw(renderer, icons);
+  callout.bounds(calloutLeft, calloutTop, calloutRight, calloutBottom);
 }
 
 void KeyboardEntryActivity::render(RenderLock&&) {
@@ -333,7 +469,9 @@ void KeyboardEntryActivity::render(RenderLock&&) {
   int events = 0;
   Event event{};
   while (!done.load() && popEvent(event)) {
-    if (event.type == EventType::Key || event.type == EventType::Alternate) ++keyEvents;
+    if (event.type == EventType::Key || event.type == EventType::Alternate || event.type == EventType::Callout) {
+      ++keyEvents;
+    }
     ++events;
     handleEvent(event);
   }

@@ -7,6 +7,7 @@
 
 #include "NoteMarkdown.h"
 #include "activities/Activity.h"
+#include "components/SelectionCallout.h"
 #include "components/typing/TextSelection.h"
 #include "components/typing/TouchTracker.h"
 #include "components/typing/TypingKeyboard.h"
@@ -39,11 +40,13 @@ class NoteEditorActivity final : public Activity {
     ScrollUp,
     ScrollDown,
     ScrollBy,
-    Toolbar
+    Toolbar,
+    Callout
   };
-  // Buttons above the keyboard: paragraph markers while typing, edit actions over a selection.
+  // Paragraph markers on the toolbar above the keyboard, edit actions in the callout by the selection.
   enum class Tool : uint8_t { Checkbox, List, Heading, Copy, Cut, Paste, SelectAll };
-  static constexpr int MAX_TOOLS = 4;
+  static constexpr int FORMAT_COUNT = 3;
+  static constexpr int MAX_ACTIONS = 4;
   // What a finger on the text does: scroll, or move one end of the selection.
   enum class Drag : uint8_t { Scroll, Select, StartHandle, EndHandle };
   struct Event {
@@ -93,6 +96,11 @@ class NoteEditorActivity final : public Activity {
   std::atomic<int16_t> startHandleY{0};
   std::atomic<int16_t> endHandleX{0};
   std::atomic<int16_t> endHandleY{0};
+  // The callout's rectangle as last drawn; empty when hidden.
+  std::atomic<int16_t> calloutLeft{0};
+  std::atomic<int16_t> calloutTop{0};
+  std::atomic<int16_t> calloutRight{0};
+  std::atomic<int16_t> calloutBottom{0};
 
   // Render task state.
   std::string path;
@@ -100,7 +108,8 @@ class NoteEditorActivity final : public Activity {
   size_t cursor = 0;             // byte offset, always on a code point boundary
   text_select::Range selection;  // empty = none; the cursor sits at its end
   text_select::Range anchor;     // the word a held finger selected first
-  bool pasteMenu = false;        // the toolbar offers Paste without a selection
+  bool pasteMenu = false;        // the callout offers Paste without a selection
+  SelectionCallout callout;
   bool dirty = false;
   TypingKeyboard keyboard;
   int16_t pressedKey = INT16_MIN;
@@ -132,7 +141,7 @@ class NoteEditorActivity final : public Activity {
   void selectWord(int x, int y);
   void selectTo(Drag handle, int x, int y);
   void paste();
-  int tools(Tool out[MAX_TOOLS]) const;
+  int actions(Tool out[MAX_ACTIONS]) const;
   void applyTool(Tool tool);
 
   int headerHeight() const;
@@ -142,6 +151,7 @@ class NoteEditorActivity final : public Activity {
   void applyFormat(Tool format);
   void drawToolbar() const;
   void drawHandle(int x, int y, int rowHeight, bool start) const;
+  void drawCallout(int startX, int startTop, int endX, int endBottom);
   int lineHeight(int line) const;
   int lineAtY(int y) const;  // wrapped line under screen y (may be past the last line)
   int maxTopLine() const;    // the top line that brings the last line to the bottom

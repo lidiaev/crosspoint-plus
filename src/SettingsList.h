@@ -337,6 +337,12 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
                             "keyboardAutoCapitalize"),
         SettingInfo::Toggle(StrId::STR_KB_DOUBLE_SPACE_PERIOD, &CrossPointSettings::keyboardDoubleSpacePeriod,
                             "keyboardDoubleSpacePeriod"),
+        SettingInfo::Enum(StrId::STR_KB_TYPING_REFRESH, &CrossPointSettings::typingRefresh,
+                          {StrId::STR_KB_REFRESH_FAST, StrId::STR_KB_REFRESH_BALANCED, StrId::STR_KB_REFRESH_CLEAN},
+                          "typingRefresh"),
+        SettingInfo::Enum(StrId::STR_KB_CLEAN_DELAY, &CrossPointSettings::typingCleanDelay,
+                          {StrId::STR_KB_DELAY_SHORT, StrId::STR_KB_DELAY_MEDIUM, StrId::STR_KB_DELAY_LONG},
+                          "typingCleanDelay"),
         // Erased below unless the board is an X4 Pro.
         SettingInfo::Toggle(StrId::STR_DBL_CLICK_PWR_LIGHT, &CrossPointSettings::doubleClickPwrLight,
                             "doubleClickPwrLight", StrId::STR_CAT_CONTROLS),

@@ -29,7 +29,8 @@ flowchart TB
 | `src/main.cpp` | Загрузка, регистрация шрифтов, главный цикл, сон |
 | `src/activities/ActivityManager` | Стек экранов, поток отрисовки, `RenderLock` |
 | `src/components/themes/lyra` | Единственная тема (Lyra): шапки, меню, иконки главного экрана |
-| `src/components/typing` | Клавиатура, отслеживание пальцев, режим быстрого набора — общие для заметок и полей ввода |
+| `src/components/typing` | Клавиатура, отслеживание пальцев, режим быстрого набора, выделение и буфер обмена — общие для заметок и полей ввода |
+| `src/components/SelectionCallout` | Плашка действий у выделенного текста |
 | `src/components/icons` | Иконки Lucide. `*.manifest` описывает, как их перегенерировать |
 | `src/activities/notes` | Заметки: список, редактор, Markdown, хранение |
 | `src/activities/util/KeyboardEntryActivity` | Системное поле ввода на нашей клавиатуре |

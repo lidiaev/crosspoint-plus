@@ -9,7 +9,8 @@ uint32_t decodeAt(const std::string& s, const size_t i) {
   if (c < 0x80) return c;
   if (c < 0xE0 && i + 1 < s.size()) return ((c & 0x1F) << 6) | (static_cast<uint8_t>(s[i + 1]) & 0x3F);
   if (c < 0xF0 && i + 2 < s.size()) {
-    return ((c & 0x0F) << 12) | ((static_cast<uint8_t>(s[i + 1]) & 0x3F) << 6) | (static_cast<uint8_t>(s[i + 2]) & 0x3F);
+    return ((c & 0x0F) << 12) | ((static_cast<uint8_t>(s[i + 1]) & 0x3F) << 6) |
+           (static_cast<uint8_t>(s[i + 2]) & 0x3F);
   }
   return 0xFFFD;
 }
@@ -17,8 +18,7 @@ uint32_t decodeAt(const std::string& s, const size_t i) {
 
 bool isWordChar(const uint32_t cp) {
   if (cp < 0x80) {
-    return (cp >= '0' && cp <= '9') || (cp >= 'a' && cp <= 'z') || (cp >= 'A' && cp <= 'Z') || cp == '_' ||
-           cp == '\'';
+    return (cp >= '0' && cp <= '9') || (cp >= 'a' && cp <= 'z') || (cp >= 'A' && cp <= 'Z') || cp == '_' || cp == '\'';
   }
   // General punctuation, guillemets, the no-break space and symbols are not part of a word.
   if (cp == 0x00A0 || cp == 0x00AB || cp == 0x00BB || (cp >= 0x2000 && cp <= 0x206F)) return cp == 0x2019;
