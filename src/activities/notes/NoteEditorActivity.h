@@ -27,7 +27,9 @@ class NoteEditorActivity final : public Activity {
   bool skipLoopDelay() override;
 
  private:
-  enum class EventType : uint8_t { Key, Alternate, TapText, ToggleKeyboard, ScrollUp, ScrollDown, ScrollBy };
+  enum class EventType : uint8_t { Key, Alternate, TapText, ToggleKeyboard, ScrollUp, ScrollDown, ScrollBy, Format };
+  // Toolbar buttons above the keyboard; each toggles the current paragraph's marker.
+  enum Format : int16_t { FORMAT_CHECKBOX, FORMAT_LIST, FORMAT_HEADING, FORMAT_COUNT };
   struct Event {
     EventType type;
     int16_t value;
@@ -95,6 +97,9 @@ class NoteEditorActivity final : public Activity {
   int headerHeight() const;
   int textTop() const;
   int textBottom() const;
+  int toolbarTop() const;
+  void applyFormat(int16_t format);
+  void drawToolbar() const;
   int lineHeight(int line) const;
   int lineAtY(int y) const;  // wrapped line under screen y (may be past the last line)
   int maxTopLine() const;    // the top line that brings the last line to the bottom

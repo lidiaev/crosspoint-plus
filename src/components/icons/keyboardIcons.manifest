@@ -11,3 +11,6 @@ key-shift-on = arrow-big-up-filled
 key-caps = arrow-big-up-dash
 key-search = search
 key-done = check
+fmt-checkbox = square-check-big
+fmt-list = list
+fmt-heading = heading

@@ -16,6 +16,7 @@
 #include "activities/ActivityManager.h"
 #include "activities/RenderLock.h"
 #include "components/UITheme.h"
+#include "components/icons/keyboardIcons.h"
 #include "components/icons/notesIcons.h"
 #include "components/typing/FastTyping.h"
 #include "fontIds.h"
@@ -30,6 +31,7 @@ constexpr int CODE_PAD = 6;                 // a backtick's width: room for the 
 constexpr uint32_t CLEANUP_IDLE_MS = 1200;  // idle repaint + autosave after this pause
 constexpr uint32_t RESTORE_IDLE_MS = 300;   // the pressed key returns to normal after this pause
 constexpr uint32_t REPEAT_DELAY_MS = 450;
+constexpr int TOOLBAR_HEIGHT = 52;            // format buttons above the keyboard
 constexpr uint32_t TYPING_ACTIVE_MS = 2000;   // full-speed loop after the last touch
 constexpr uint32_t ALTERNATE_DELAY_MS = 450;  // long press on е types ё
 constexpr int DRAG_SLOP = 16;                 // px a finger moves before a tap becomes a drag
@@ -101,8 +103,10 @@ int NoteEditorActivity::headerHeight() const {
 
 int NoteEditorActivity::textTop() const { return headerHeight() + MARGIN / 2; }
 
+int NoteEditorActivity::toolbarTop() const { return keyboard.rect(renderer).y - TOOLBAR_HEIGHT; }
+
 int NoteEditorActivity::textBottom() const {
-  return keyboardShown.load() ? keyboard.rect(renderer).y - MARGIN / 2 : renderer.getScreenHeight() - MARGIN;
+  return keyboardShown.load() ? toolbarTop() - MARGIN / 2 : renderer.getScreenHeight() - MARGIN;
 }
 
 int NoteEditorActivity::lineHeight(const int line) const {
@@ -183,6 +187,13 @@ void NoteEditorActivity::loop() {
         enqueue(Event{EventType::ToggleKeyboard, 0, p.x, p.y, p.downMs});
         update = true;
       }
+      continue;
+    }
+    // The toolbar is checked before the keyboard, whose keys reach a little past their edges.
+    if (keyboardShown.load() && p.y >= toolbarTop() && p.y < keyboard.rect(renderer).y) {
+      const int format = std::clamp(p.x * FORMAT_COUNT / width, 0, FORMAT_COUNT - 1);
+      enqueue(Event{EventType::Format, static_cast<int16_t>(format), p.x, p.y, p.downMs});
+      update = true;
       continue;
     }
     int16_t value = 0;
@@ -446,6 +457,60 @@ void NoteEditorActivity::applyKey(const int16_t value, const uint32_t downMs, bo
   }
 }
 
+// The marker that opens the paragraph with the cursor: a checkbox, a bullet or a
+// heading. Each toolbar button toggles its own kind and replaces the others,
+// like the format buttons in Apple Notes.
+void NoteEditorActivity::applyFormat(const int16_t format) {
+  const size_t nl = cursor == 0 ? std::string::npos : text.rfind('\n', cursor - 1);
+  const size_t start = nl == std::string::npos ? 0 : nl + 1;
+  size_t end = text.find('\n', start);
+  if (end == std::string::npos) end = text.size();
+  size_t at = start;
+  while (at < end && text[at] == ' ') ++at;
+
+  const auto isBulletChar = [](const char c) { return c == '-' || c == '*' || c == '+'; };
+  const bool bullet = at + 1 < end && isBulletChar(text[at]) && text[at + 1] == ' ';
+  const bool box = bullet && at + 4 < end && text[at + 2] == '[' && text[at + 4] == ']' &&
+                   (text[at + 3] == ' ' || text[at + 3] == 'x' || text[at + 3] == 'X');
+  int level = 0;
+  while (at + level < end && text[at + level] == '#' && level < 6) ++level;
+  if (at + level >= end || text[at + level] != ' ') level = 0;
+
+  size_t oldLength = 0;
+  if (box) {
+    oldLength = at + 5 < end && text[at + 5] == ' ' ? 6 : 5;
+  } else if (bullet) {
+    oldLength = 2;
+  } else if (level > 0) {
+    oldLength = level + 1;
+  }
+
+  const char* marker = "";
+  switch (format) {
+    case FORMAT_CHECKBOX:
+      marker = box ? "" : "- [ ] ";
+      break;
+    case FORMAT_LIST:
+      marker = bullet && !box ? "" : "- ";
+      break;
+    case FORMAT_HEADING:
+      marker = level == 0 ? "# " : level == 1 ? "## " : "";
+      break;
+    default:
+      return;
+  }
+  const size_t newLength = strlen(marker);
+  if (text.size() - oldLength + newLength > notes::MAX_NOTE_BYTES) return;
+  text.replace(at, oldLength, marker);
+  if (cursor >= at + oldLength) {
+    cursor = cursor - oldLength + newLength;
+  } else if (cursor > at) {
+    cursor = at + newLength;
+  }
+  dirty = true;
+  styleStale = true;
+}
+
 // Enter continues a list; on an empty item it ends the list instead.
 void NoteEditorActivity::insertNewline() {
   const size_t nl = cursor == 0 ? std::string::npos : text.rfind('\n', cursor - 1);
@@ -553,6 +618,11 @@ void NoteEditorActivity::handleEvent(const Event& event, bool& layoutChanged) {
     case EventType::ScrollBy:
       topLine = std::clamp(topLine + event.value, 0, maxTopLine());
       break;
+    case EventType::Format:
+      applyFormat(event.value);
+      if (keyboard.autoCapitalize(text, cursor)) layoutChanged = true;
+      keepCursorVisible();
+      break;
   }
 }
 
@@ -575,6 +645,19 @@ void NoteEditorActivity::drawHeader() const {
   const auto& metrics = UITheme::getInstance().getMetrics();
   GUI.drawHeaderWithAction(renderer, Rect{0, metrics.topPadding, renderer.getScreenWidth(), metrics.headerHeight}, "",
                            keyboardShown.load() ? icon_keyboard_off_32 : icon_keyboard_32);
+}
+
+void NoteEditorActivity::drawToolbar() const {
+  static const freeink::Icon* const ICONS[FORMAT_COUNT] = {&icon_fmt_checkbox_28, &icon_fmt_list_28,
+                                                           &icon_fmt_heading_28};
+  const int top = toolbarTop();
+  const int width = renderer.getScreenWidth();
+  renderer.drawLine(0, top, width - 1, top);
+  for (int i = 0; i < FORMAT_COUNT; ++i) {
+    const freeink::Icon& icon = *ICONS[i];
+    const int cx = width * (2 * i + 1) / (2 * FORMAT_COUNT);
+    renderer.drawIcon(icon.bits, cx - icon.w / 2, top + (TOOLBAR_HEIGHT - icon.h) / 2, icon.w);
+  }
 }
 
 void NoteEditorActivity::drawGlyph(const uint8_t attr, const int x, const int y, const int lineHeight) {
@@ -685,7 +768,9 @@ void NoteEditorActivity::render(RenderLock&&) {
   int events = 0;
   Event event{};
   while (popEvent(event)) {
-    if (event.type == EventType::Key || event.type == EventType::Alternate) ++keyEvents;
+    if (event.type == EventType::Key || event.type == EventType::Alternate || event.type == EventType::Format) {
+      ++keyEvents;
+    }
     ++events;
     handleEvent(event, layoutChanged);
   }
@@ -706,7 +791,10 @@ void NoteEditorActivity::render(RenderLock&&) {
   renderer.clearScreen();
   drawHeader();
   drawText();
-  if (keyboardShown.load()) keyboard.draw(renderer, pressedKey);
+  if (keyboardShown.load()) {
+    drawToolbar();
+    keyboard.draw(renderer, pressedKey);
+  }
 
   if (whole) {
     renderer.displayBuffer(HalDisplay::HALF_REFRESH);
