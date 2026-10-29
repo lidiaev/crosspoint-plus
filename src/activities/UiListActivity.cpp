@@ -130,9 +130,6 @@ void UiListActivity::syncListViewport(UiScreen& screen, fui::ListProps& props, c
       props.topIndex = static_cast<uint16_t>(prevTop);
     }
   }
-  // The selection serves button navigation; with touch it only adds a stray
-  // highlight, so it stays internal (the viewport still follows it).
-  if (!showsSelection()) props.selectedIndex = -1;
 }
 
 void UiListActivity::drawChrome() {

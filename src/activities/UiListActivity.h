@@ -66,10 +66,6 @@ class UiListActivity : public Activity, protected UiAppHost {
   virtual void drawFooter();
 
   // --- helpers ---------------------------------------------------------------
-  // Whether the selected row is drawn highlighted. Off on touch boards, where
-  // nothing is navigated with buttons; lists whose selection means something
-  // (the current chapter) override it.
-  virtual bool showsSelection() const { return !mappedInput.hasTouch(); }
   // Measure visibleRows for the screen band, apply follow-on-build, clamp the
   // viewport, and write selection/viewport into props. Call from buildScreen
   // right before screen.list(props).

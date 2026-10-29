@@ -27,8 +27,6 @@ class EpubReaderChapterSelectionActivity final : public UiListActivity {
 
   // Total TOC items count
   int listCount() const override { return epub ? epub->getTocItemsCount() : 0; }
-  // The highlighted row is the chapter being read.
-  bool showsSelection() const override { return true; }
   void buildScreen(UiScreen& screen) override;
   void activateIndex(int index) override;
   // Back cancels with a result and Confirm activates on RELEASE here, and a
