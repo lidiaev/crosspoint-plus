@@ -16,6 +16,7 @@
 #include "components/UIThemeTokens.h"
 #include "components/icons/customListIcons.h"
 #include "components/icons/listIcons.h"
+#include "components/icons/panelIcons.h"
 
 namespace fui = freeink::ui;
 
@@ -28,15 +29,18 @@ constexpr fui::ActionId ACTION_WARMTH_STEP = 5;
 constexpr fui::ActionId ACTION_TILE = 6;  // value = tile index
 
 // iOS-style geometry. The panel is a card hanging from the top of the screen:
-// a grabber, full-width slider pills, then a 2-column tile grid. The chrome
+// a grabber, full-width slider pills, then one row of icon tiles. The chrome
 // itself is fui::sheet / fui::sliderRow / fui::tileGrid; these constants only
 // size the bands, and computePanelBottom() mirrors them.
 constexpr int16_t kPanelSideMargin = 16;
 constexpr int16_t kGrabberHeight = 5;     // fui::SheetProps default, mirrored here
 constexpr int16_t kSliderRowHeight = 56;  // the pill itself (finger-sized)
-constexpr int16_t kTileHeight = 84;
-constexpr int16_t kTileGap = 16;
-constexpr int kTileCols = 2;
+constexpr int16_t kTileHeight = 72;
+constexpr int16_t kTileGap = 12;
+constexpr int kTileCols = 5;
+// Tile values: night mode, then the four orientations (value - TILE_ORIENTATION).
+constexpr int16_t TILE_NIGHT = 0;
+constexpr int16_t TILE_ORIENTATION = 10;
 // One percent per press, on the -/+ buttons and on the physical Left/Right keys
 // alike (both repeat while held), so a level can be set exactly.
 constexpr int BRIGHTNESS_STEP = 1;
@@ -66,12 +70,6 @@ void FrontlightPanelActivity::onEnter() {
   warmth = Frontlight.warmth();
   lightOn = Frontlight.isOn();
   lightOnChanged = false;
-
-  // Seed the touch tile's restore mode from the live setting, so toggling off
-  // and back on within this session returns to the mode the user had.
-  if (SETTINGS.touchReaderControls != CrossPointSettings::TOUCH_READER_OFF) {
-    touchModeRestore = SETTINGS.touchReaderControls;
-  }
 
   resetUi();
   app.on(ACTION_BRIGHTNESS, &FrontlightPanelActivity::onBrightnessEvent, this);
@@ -141,46 +139,19 @@ void FrontlightPanelActivity::onTileEvent(const fui::ActionEvent& event, void* u
 }
 
 void FrontlightPanelActivity::runTile(const int idx) {
-  switch (idx) {
-    case 0:  // Night mode (inverted output polarity, applied to the whole UI)
-      SETTINGS.screenInverted = SETTINGS.screenInverted ? 0 : 1;
-      SETTINGS.saveToFile();
-      // Inversion rewrites every pixel; take the clean waveform so the panel
-      // does not keep a ghost of the old polarity.
-      cleanRefreshPending = true;
-      requestUpdate();
-      break;
-    case 1:  // Ghost-cleanup refresh of the whole frame
-      // Refreshing with the panel still up would clean a frame the user is
-      // about to dismiss anyway: drop the panel first and let the repaint of
-      // the screen underneath carry the clean waveform instead.
-      renderer.promoteNextRefresh(HalDisplay::FULL_REFRESH);
-      close();
-      break;
-    case 2:  // Cycle the reading orientation
-      SETTINGS.orientation = static_cast<uint8_t>((SETTINGS.orientation + 1) % 4);
-      SETTINGS.saveToFile();
-      // Only the setting changes: turning the renderer cropped the portrait-only
-      // screens the panel opens over. The reader reflows on its next loop().
-      requestUpdate();
-      break;
-    case 3:  // Touch reader controls (for reading with the palm on the glass)
-      // Toggles the existing Settings -> Controls option, nothing lower-level:
-      // that setting only governs the reader's tap/swipe handling, so the
-      // panel's own gestures (including the swipe that reopens it) keep
-      // working while it is off. Off remembers the mode (Tap/Swipe/Inverted
-      // Tap) so toggling back does not stomp the user's choice.
-      if (SETTINGS.touchReaderControls != CrossPointSettings::TOUCH_READER_OFF) {
-        touchModeRestore = SETTINGS.touchReaderControls;
-        SETTINGS.touchReaderControls = CrossPointSettings::TOUCH_READER_OFF;
-      } else {
-        SETTINGS.touchReaderControls = touchModeRestore;
-      }
-      SETTINGS.saveToFile();
-      requestUpdate();
-      break;
-    default:
-      break;
+  if (idx == TILE_NIGHT) {
+    // Night mode inverts output polarity for the whole UI. Inversion rewrites
+    // every pixel; take the clean waveform so no ghost of the old polarity stays.
+    SETTINGS.screenInverted = SETTINGS.screenInverted ? 0 : 1;
+    SETTINGS.saveToFile();
+    cleanRefreshPending = true;
+    requestUpdate();
+  } else if (idx >= TILE_ORIENTATION && idx < TILE_ORIENTATION + 4) {
+    // Only the setting changes: turning the renderer would crop the portrait-only
+    // screens the panel opens over. The reader reflows on its next loop().
+    SETTINGS.orientation = static_cast<uint8_t>(idx - TILE_ORIENTATION);
+    SETTINGS.saveToFile();
+    requestUpdate();
   }
 }
 
@@ -375,33 +346,26 @@ void FrontlightPanelActivity::buildPanelScreen(UiScreen& screen) {
   // setting is currently on draws filled (StateChecked -> selected style).
   // Touch boards only — the tiles are touch targets.
   if (mappedInput.hasTouch()) {
-    static constexpr StrId kOrientNames[4] = {StrId::STR_PORTRAIT, StrId::STR_LANDSCAPE_CW,
-                                              StrId::STR_ORIENTATION_INVERTED, StrId::STR_LANDSCAPE_CCW};
-    // The orientation tile is labelled with just the current mode ("Portrait"):
-    // the mode names say what the tile is about on their own.
-    const char* orientLabel = I18N.get(kOrientNames[SETTINGS.orientation % 4]);
-    // "Touch On" / "Touch Off", from the existing state strings: the label
-    // names the current state of the touch-reader-controls setting.
-    const bool touchOn = SETTINGS.touchReaderControls != CrossPointSettings::TOUCH_READER_OFF;
-    char touchLabel[48];
-    snprintf(touchLabel, sizeof(touchLabel), "%s %s", tr(STR_TOUCH_TOGGLE),
-             I18N.get(touchOn ? StrId::STR_STATE_ON : StrId::STR_STATE_OFF));
-
-    const char* labels[kTileCount] = {tr(STR_NIGHT_MODE), tr(STR_FORCE_REFRESH), orientLabel, touchLabel};
-    const fui::State states[kTileCount] = {SETTINGS.screenInverted ? fui::StateChecked : fui::StateNormal,
-                                           fui::StateNormal, fui::StateNormal,
-                                           // Filled when touch reader controls are OFF — the non-default,
-                                           // attention-worthy state.
-                                           touchOn ? fui::StateNormal : fui::StateChecked};
-
-    for (int id = 0; id < kTileCount; ++id) {
-      gridItems[id].label = labels[id];
-      gridItems[id].value = static_cast<int16_t>(id);
-      gridItems[id].state = states[id];
+    // Night mode, then the four orientations as pictures of the device held
+    // that way; the active ones draw filled.
+    static const freeink::Icon* const kOrientIcons[4] = {&icon_orient_portrait_32, &icon_orient_landscape_cw_32,
+                                                         &icon_orient_inverted_32, &icon_orient_landscape_ccw_32};
+    gridItems[0].label = nullptr;
+    gridItems[0].icon = fui::bitmapFromIcon(icon_night_mode_32);
+    gridItems[0].value = TILE_NIGHT;
+    gridItems[0].state = SETTINGS.screenInverted ? fui::StateChecked : fui::StateNormal;
+    for (int o = 0; o < 4; ++o) {
+      fui::TileGridItem& item = gridItems[1 + o];
+      item.label = nullptr;
+      item.icon = fui::bitmapFromIcon(*kOrientIcons[o]);
+      item.value = static_cast<int16_t>(TILE_ORIENTATION + o);
+      item.state = SETTINGS.orientation % 4 == o ? fui::StateChecked : fui::StateNormal;
     }
     gridProps.items = gridItems;
     gridProps.count = static_cast<uint16_t>(kTileCount);
     gridProps.action = ACTION_TILE;
+    gridProps.columns = kTileCols;
+    gridProps.iconSize = 32;
     gridProps.tileHeight = kTileHeight;
     gridProps.gap = kTileGap;
     screen.tileGrid(gridProps);

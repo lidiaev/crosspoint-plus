@@ -29,15 +29,11 @@ class FrontlightPanelActivity final : public Activity, private UiAppHost {
   // reflected user intent in the first place.
   bool lightOnChanged = false;
   bool draggingSlider = false;
-  // The touch tile toggles SETTINGS.touchReaderControls between off and this
-  // remembered mode, so a Swipe or Inverted Tap user gets their mode back
-  // rather than the Tap default. Seeded from the setting in onEnter().
-  uint8_t touchModeRestore = CrossPointSettings::TOUCH_READER_ON;
   int panelBottom = 0;
 
-  // Quick-setting tiles, in grid order (2 columns): night mode, refresh,
-  // orientation, touch. Fixed set — shown on touch boards, absent elsewhere.
-  static constexpr int kTileCount = 4;
+  // Quick-setting tiles in one row: night mode and the four orientations.
+  // Shown on touch boards, absent elsewhere.
+  static constexpr int kTileCount = 5;
 
   // fui::SliderRowProps and fui::TileGridProps embed a 324-byte fui::StyleSet,
   // so the props the render path fills in live here instead of on the stack
