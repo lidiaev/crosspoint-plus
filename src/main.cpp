@@ -82,7 +82,10 @@ EpdFontFamily ui10FontFamily(&ui10RegularFont, &ui10BoldFont);
 
 EpdFont ui12RegularFont(&ubuntu_12_regular);
 EpdFont ui12BoldFont(&ubuntu_12_bold);
-EpdFontFamily ui12FontFamily(&ui12RegularFont, &ui12BoldFont);
+EpdFont ui12ItalicFont(&ubuntu_12_italic);
+EpdFont ui12BoldItalicFont(&ubuntu_12_bolditalic);
+// Italics serve notes and books that fall back to the built-in font.
+EpdFontFamily ui12FontFamily(&ui12RegularFont, &ui12BoldFont, &ui12ItalicFont, &ui12BoldItalicFont);
 
 // Definitions for SilentRestart.h. RTC_NOINIT survives ESP.restart() but not power loss.
 RTC_NOINIT_ATTR uint32_t silentRebootMagic;

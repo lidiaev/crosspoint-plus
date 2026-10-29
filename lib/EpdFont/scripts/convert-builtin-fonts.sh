@@ -55,6 +55,13 @@ for size in ${UI_FONT_SIZES[@]}; do
   done
 done
 
+# Italics at the body size for notes and the built-in reading font: Latin and Cyrillic only.
+for style in Italic BoldItalic; do
+  font_name="ubuntu_12_$(echo $style | tr '[:upper:]' '[:lower:]')"
+  python fontconvert.py $font_name 12 ../builtinFonts/source/Ubuntu/Ubuntu-${style}.ttf > ../builtinFonts/${font_name}.h
+  echo "Generated ../builtinFonts/${font_name}.h"
+done
+
 # Bold headings for notes: Latin and Cyrillic only.
 for size in 14 16; do
   python fontconvert.py ubuntu_${size}_bold $size ../builtinFonts/source/Ubuntu/Ubuntu-Bold.ttf \
