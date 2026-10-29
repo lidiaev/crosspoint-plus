@@ -2,7 +2,6 @@
 
 #include <GfxRenderer.h>
 #include <HalDisplay.h>
-#include <I18n.h>
 #include <Logging.h>
 #include <Memory.h>
 
@@ -53,6 +52,8 @@ void NoteEditorActivity::onEnter() {
     LOG_ERR("NOTES", "Cannot open %s", path.c_str());
   }
   cursor = text.size();
+  // A new note opens ready to type; an existing one opens for reading.
+  keyboardShown = path.empty();
   lineStarts.reserve(64);
   keyboard.begin(keyboard_layouts::startingLayout() == fui::KeyboardLayoutId::QwertyEn);
   keyboard.autoCapitalize(text, cursor);
@@ -431,11 +432,12 @@ void NoteEditorActivity::saveNow() {
   if (notes::save(path, text)) dirty = false;
 }
 
-// The system header: status band, back arrow, title, and a keyboard toggle.
+// The system header: status band, back arrow and a keyboard toggle. No title:
+// the list already says "Notes" and the note's first line names it.
 void NoteEditorActivity::drawHeader() const {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  GUI.drawHeaderWithAction(renderer, Rect{0, metrics.topPadding, renderer.getScreenWidth(), metrics.headerHeight},
-                           tr(STR_NOTES), keyboardShown.load() ? icon_keyboard_off_32 : icon_keyboard_32);
+  GUI.drawHeaderWithAction(renderer, Rect{0, metrics.topPadding, renderer.getScreenWidth(), metrics.headerHeight}, "",
+                           keyboardShown.load() ? icon_keyboard_off_32 : icon_keyboard_32);
 }
 
 void NoteEditorActivity::drawText() {
