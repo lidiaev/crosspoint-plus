@@ -9,13 +9,10 @@
 #include <cstdlib>
 #include <cstring>
 
-#include "CrossPointSettings.h"
 #include "MappedInputManager.h"
 #include "NoteMarkdown.h"
 #include "NotesListActivity.h"
 #include "NotesStore.h"
-#include "ReaderFontSizes.h"
-#include "SdCardFontSystem.h"
 #include "activities/ActivityManager.h"
 #include "activities/RenderLock.h"
 #include "components/UITheme.h"
@@ -58,11 +55,6 @@ void NoteEditorActivity::onEnter() {
     LOG_ERR("NOTES", "Cannot open %s", path.c_str());
   }
   cursor = text.size();
-  {
-    // Loading SD font sizes registers them with the renderer.
-    RenderLock lock;
-    loadFonts();
-  }
   // A new note opens ready to type; an existing one opens for reading.
   keyboardShown = path.empty();
   lineStarts.reserve(64);
@@ -293,41 +285,6 @@ int NoteEditorActivity::advance(const uint32_t cp, const uint8_t style, const ui
       1, renderer.getTextAdvanceX(fonts[font], buf, static_cast<EpdFontFamily::Style>(style & note_md::STYLE_MASK)));
   if (cp < CACHED_CPS) cache[cp] = static_cast<uint8_t>(std::min(w, 255));
   return w;
-}
-
-// Notes use the reading font: the body at the reader's size, headings one and
-// two installed sizes larger (bold at the body size when there are none).
-void NoteEditorActivity::loadFonts() {
-  sdFontSystem.ensureLoaded(renderer);
-  const int body = SETTINGS.getReaderFontId();
-  const bool sdFont = SETTINGS.sdFontFamilyName[0] != '\0' &&
-                      body == sdFontSystem.resolveFontId(SETTINGS.sdFontFamilyName, SETTINGS.fontPointSize);
-  const std::vector<uint8_t> sizes = readerFontPointSizes(&sdFontSystem.registry(), SETTINGS.sdFontFamilyName);
-  const uint8_t bodyPt = snapToNearestPointSize(sizes, SETTINGS.fontPointSize);
-  const auto fontAt = [&](const uint8_t pt) {
-    if (sdFont) return sdFontSystem.loadActiveFamilySize(renderer, pt);
-    switch (pt) {
-      case 12:
-        return NOTOSERIF_12_FONT_ID;
-      case 14:
-        return NOTOSERIF_14_FONT_ID;
-      case 16:
-        return NOTOSERIF_16_FONT_ID;
-      case 18:
-        return NOTOSERIF_18_FONT_ID;
-      default:
-        return 0;
-    }
-  };
-  fonts[0] = body;
-  int slot = 1;
-  for (const uint8_t pt : sizes) {
-    if (slot >= FONT_SLOTS) break;
-    if (pt <= bodyPt) continue;
-    const int id = fontAt(pt);
-    if (id != 0) fonts[slot++] = id;
-  }
-  for (; slot < FONT_SLOTS; ++slot) fonts[slot] = fonts[slot - 1];
 }
 
 int NoteEditorActivity::boxSize() const { return renderer.getLineHeight(fonts[0]) * 11 / 20; }
