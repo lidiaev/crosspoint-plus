@@ -27,6 +27,9 @@ class TypingLabActivity final : public Activity {
  private:
   enum class Control : uint8_t { None, Back, Lut, Window, Clear };
 
+  static constexpr uint8_t KB_ROWS = 4;
+  static constexpr uint8_t KB_COLS = 14;
+
   struct PendingKey {
     int16_t value;
     uint32_t downMs;
@@ -47,6 +50,9 @@ class TypingLabActivity final : public Activity {
   std::atomic<bool> windowed{true};
   uint32_t liftedAt = 0;
   bool contactActive = false;
+  int16_t contactValue = INT16_MIN;  // key under the handled contact (for Backspace repeat)
+  uint32_t contactDownAt = 0;
+  uint32_t nextRepeatAt = 0;
   int contactX = 0;  // last sampled position of the handled contact
   int contactY = 0;
 
@@ -56,6 +62,12 @@ class TypingLabActivity final : public Activity {
   bool showLangKey = false;
   bool shifted = false;
   bool symbols = false;
+  bool capsLock = false;
+  uint32_t lastShiftAt = 0;
+  // Letter layers built at runtime: Shift/Caps state is drawn on the key.
+  freeink::ui::KeyboardKey kbKeys[KB_ROWS][KB_COLS] = {};
+  freeink::ui::KeyboardRow kbRows[KB_ROWS] = {};
+  freeink::ui::KeyboardLayout kbLayout = {};
   int16_t pressedKey = INT16_MIN;
   freeink::ui::InteractionBuffer<56> interactions;
   uint32_t lastLatencyMs = 0;
@@ -73,7 +85,9 @@ class TypingLabActivity final : public Activity {
   Control controlAt(int x, int y) const;
   int barHeight() const;
   // Applies one key; returns true when the keyboard layout changed.
-  bool applyKey(int16_t value);
+  bool applyKey(int16_t value, uint32_t downMs);
+  void buildLetterLayout();
+  void autoCapitalize();
   const freeink::ui::KeyboardLayout& currentLayout() const;
   freeink::ui::Rect keyboardRect() const;
   void applyLut() const;
