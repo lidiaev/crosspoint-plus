@@ -10,7 +10,6 @@
 #include <cstdlib>
 #include <cstring>
 
-#include "FastTyping.h"
 #include "MappedInputManager.h"
 #include "NotesListActivity.h"
 #include "NotesStore.h"
@@ -19,6 +18,7 @@
 #include "activities/util/KeyboardLayoutSet.h"
 #include "components/UITheme.h"
 #include "components/icons/notesIcons.h"
+#include "components/typing/FastTyping.h"
 #include "fontIds.h"
 
 namespace fui = freeink::ui;
@@ -487,7 +487,8 @@ void NoteEditorActivity::render(RenderLock&&) {
   if (!whole && events == 0 && !release && !cleanup) return;
 
   wrap();
-  topLine = std::clamp(topLine, 0, std::max(0, static_cast<int>(lineStarts.size()) - 1));
+  // Never scroll past the end: hiding the keyboard pulls the text back down.
+  topLine = std::clamp(topLine, 0, std::max(0, static_cast<int>(lineStarts.size()) - visibleLines()));
 
   renderer.clearScreen();
   drawHeader();

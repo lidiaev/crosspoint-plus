@@ -5,9 +5,9 @@
 #include <string>
 #include <vector>
 
-#include "TouchTracker.h"
-#include "TypingKeyboard.h"
 #include "activities/Activity.h"
+#include "components/typing/TouchTracker.h"
+#include "components/typing/TypingKeyboard.h"
 
 // Plain-text editor for one note. Keys commit on touch-down and reach the panel
 // through the fast typing display mode (short LUT, changed regions only); an

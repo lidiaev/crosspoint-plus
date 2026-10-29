@@ -257,7 +257,8 @@ void TypingKeyboard::draw(const GfxRenderer& renderer, const int16_t pressed) {
           drawLabel(renderer, SMALL_FONT_ID, cx, cy, symbols ? (english ? "ABC" : "АБВ") : "123", ink);
           break;
         case fui::KeyKind::Space:
-          drawLabel(renderer, SMALL_FONT_ID, cx, cy, english ? "space" : "пробел", ink);
+          // A bar across the key, the same in every language.
+          renderer.drawLine(cx - w * 2 / 5, cy + 3, cx + w * 2 / 5, cy + 3, 2, ink);
           break;
         default:
           if (key.value == KEY_SYMBOL_PAGE) {
@@ -265,11 +266,6 @@ void TypingKeyboard::draw(const GfxRenderer& renderer, const int16_t pressed) {
             break;
           }
           drawLabel(renderer, UI_12_FONT_ID, cx, cy, key.label, ink);
-          if (alternateOf(key.value) != 0) {
-            // Corner hint that a long press types the alternate letter.
-            renderer.drawText(SMALL_FONT_ID, x + w - renderer.getTextWidth(SMALL_FONT_ID, "ё") - 3, y - 2,
-                              upper ? "Ё" : "ё", ink);
-          }
           break;
       }
       fui::Interaction hit;
