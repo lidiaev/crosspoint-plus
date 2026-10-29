@@ -111,7 +111,7 @@ class NoteEditorActivity final : public Activity {
   bool toggleCheckboxAt(int x, int y);
   void insertNewline();
   bool autoCapitalize();
-  void drawGlyph(uint8_t attr, int x, int y, int lineHeight);
+  void drawGlyph(uint8_t attr, int x, int y, int rowHeight);
   void wrap();
   int lineOf(size_t offset) const;
   void keepCursorVisible();

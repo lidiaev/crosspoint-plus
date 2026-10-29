@@ -8,7 +8,8 @@ Personal X4 Pro firmware forked from CrossPoint Reader. Read [README.md](README.
 - Work happens on `main` of `lidiaev/crosspoint-plus`; pushing there is allowed. Pull requests come later.
 - Version lives in `platformio.ini` (`1.6.5-plus.N`); bump it for each firmware handed to the device.
 - Build: `~/.platformio/penv313/bin/pio run -e x4pro-gh_release` (Python 3.13 venv).
-- Format: `./bin/clang-format-fix -g` only; never call clang-format directly.
+- Format: `PATH=~/.platformio/penv313/bin:$PATH ./bin/clang-format-fix` — clang-format 21 (`pip install clang-format==21.1.8` in the venv), the version CI checks with; never call clang-format directly.
+- Static analysis: `pio check --fail-on-defect low --fail-on-defect medium --fail-on-defect high`, as CI runs it.
 - Host tests: `cmake -S test -B build/test && cmake --build build/test && ctest --test-dir build/test`.
 - Device upload over Wi-Fi when File transfer is on: `curl -F file=@firmware.bin "http://<ip>/upload?path=/&overwrite=1"`,
   always as `crosspoint-plus-x4pro.bin` (one firmware file on the card). Never delete files on the device.

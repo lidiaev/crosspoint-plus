@@ -131,7 +131,6 @@ class CrossPointWebServer {
     FontUploadState() { buffer.resize(BUFFER_SIZE); }
   } fontUpload;
 
-
   // Wi-Fi credential handlers
   void handleGetWifiNetworks() const;
   void handlePostWifiNetwork();

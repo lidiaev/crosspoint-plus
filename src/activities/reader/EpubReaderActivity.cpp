@@ -1822,7 +1822,8 @@ void EpubReaderActivity::showTextRowPopup(const int row) {
       if (sizes.empty()) return;
       std::vector<std::string> labels;
       labels.reserve(sizes.size());
-      for (const uint8_t size : sizes) labels.push_back(std::to_string(size) + " pt");
+      std::transform(sizes.begin(), sizes.end(), std::back_inserter(labels),
+                     [](const uint8_t size) { return std::to_string(size) + " pt"; });
       const uint8_t cur = snapToNearestPointSize(sizes, SETTINGS.fontPointSize);
       int curIdx = 0;
       for (size_t i = 0; i < sizes.size(); ++i) {

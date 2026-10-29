@@ -262,10 +262,10 @@ void NoteEditorActivity::trackDrag(const uint32_t now, bool& update) {
   }
   if (!dragMoved && std::abs(y - dragStartY) < DRAG_SLOP && std::abs(x - dragStartX) < DRAG_SLOP) return;
   dragMoved = true;
-  const int lineHeight = renderer.getLineHeight(fonts[0]);
-  const int lines = (dragAppliedY - y) / lineHeight;  // finger up = text up = later lines
+  const int step = renderer.getLineHeight(fonts[0]);
+  const int lines = (dragAppliedY - y) / step;  // finger up = text up = later lines
   if (lines == 0) return;
-  dragAppliedY = static_cast<int16_t>(dragAppliedY - lines * lineHeight);
+  dragAppliedY = static_cast<int16_t>(dragAppliedY - lines * step);
   enqueue(Event{EventType::ScrollBy, static_cast<int16_t>(lines), x, y, now});
   update = true;
 }
@@ -664,7 +664,7 @@ void NoteEditorActivity::drawToolbar() const {
   }
 }
 
-void NoteEditorActivity::drawGlyph(const uint8_t attr, const int x, const int y, const int lineHeight) {
+void NoteEditorActivity::drawGlyph(const uint8_t attr, const int x, const int y, const int rowHeight) {
   switch (note_md::glyphOf(attr)) {
     case note_md::Glyph::Bullet:
       renderer.drawText(fonts[0], x, y, "•");
@@ -673,7 +673,7 @@ void NoteEditorActivity::drawGlyph(const uint8_t attr, const int x, const int y,
     case note_md::Glyph::BoxChecked: {
       const int size = boxSize();
       const int bx = x + 1;
-      const int by = y + (lineHeight - size) / 2 + 1;
+      const int by = y + (rowHeight - size) / 2 + 1;
       renderer.drawRect(bx, by, size, size, 2, true);
       if (note_md::glyphOf(attr) == note_md::Glyph::BoxChecked) {
         renderer.drawLine(bx + size / 5, by + size / 2, bx + size * 2 / 5, by + size * 3 / 4, 2, true);
@@ -682,10 +682,10 @@ void NoteEditorActivity::drawGlyph(const uint8_t attr, const int x, const int y,
       break;
     }
     case note_md::Glyph::Quote:
-      renderer.fillRect(x + 2, y, 3, lineHeight);
+      renderer.fillRect(x + 2, y, 3, rowHeight);
       break;
     case note_md::Glyph::Rule:
-      renderer.drawLine(MARGIN, y + lineHeight / 2, renderer.getScreenWidth() - MARGIN, y + lineHeight / 2, 2, true);
+      renderer.drawLine(MARGIN, y + rowHeight / 2, renderer.getScreenWidth() - MARGIN, y + rowHeight / 2, 2, true);
       break;
     case note_md::Glyph::CodeEdge:  // padding inside the code frame
     case note_md::Glyph::None:
@@ -706,7 +706,7 @@ void NoteEditorActivity::drawText() {
     const size_t start = lineStarts[l];
     const size_t end = l + 1 < lines ? lineStarts[l + 1] : text.size();
     const uint8_t font = lineFonts[l];
-    const int lineHeight = renderer.getLineHeight(fonts[font]);
+    const int rowHeight = renderer.getLineHeight(fonts[font]);
     int x = MARGIN;
     int runX = x;
     uint8_t runAttr = 0;
@@ -714,7 +714,7 @@ void NoteEditorActivity::drawText() {
     int codeX = -1;  // left edge of the open code frame on this line
     const auto closeCode = [&]() {
       if (codeX < 0) return;
-      renderer.drawRoundedRect(codeX, y + 2, x - codeX, lineHeight - 3, 1, 4, true);
+      renderer.drawRoundedRect(codeX, y + 2, x - codeX, rowHeight - 3, 1, 4, true);
       codeX = -1;
     };
     // The run measured as drawn (with kerning), so the caret sits on the glyph boundary.
@@ -727,7 +727,7 @@ void NoteEditorActivity::drawText() {
       if (run.empty()) return;
       renderer.drawText(fonts[font], runX, y, run.c_str(), true,
                         static_cast<EpdFontFamily::Style>(runAttr & note_md::STYLE_MASK));
-      if (runAttr & note_md::STRIKE) renderer.fillRect(runX, y + lineHeight * 11 / 20, x - runX, 2);
+      if (runAttr & note_md::STRIKE) renderer.fillRect(runX, y + rowHeight * 11 / 20, x - runX, 2);
       run.clear();
     };
     for (size_t i = start; i < end;) {
@@ -745,7 +745,7 @@ void NoteEditorActivity::drawText() {
       if (!(a & note_md::CODE) && codeX >= 0) closeCode();
       if (note_md::glyphOf(a) != note_md::Glyph::None) {
         flush();
-        drawGlyph(a, x, y, lineHeight);
+        drawGlyph(a, x, y, rowHeight);
       } else {
         const uint8_t style = a & (note_md::STYLE_MASK | note_md::STRIKE);
         if (!run.empty() && style != runAttr) flush();
@@ -761,8 +761,8 @@ void NoteEditorActivity::drawText() {
     if (l == cursorLine && cursorX < 0) cursorX = caretX();  // the cursor ends the line
     flush();
     closeCode();
-    if (l == cursorLine) renderer.fillRect(cursorX - 1, y, 2, lineHeight);  // centered on the boundary
-    y += lineHeight;
+    if (l == cursorLine) renderer.fillRect(cursorX - 1, y, 2, rowHeight);  // centered on the boundary
+    y += rowHeight;
   }
 }
 

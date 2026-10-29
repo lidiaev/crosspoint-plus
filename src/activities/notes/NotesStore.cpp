@@ -220,9 +220,7 @@ std::string pathFor(const std::string& text, const std::string& current) {
     while (cut > 0 && (static_cast<uint8_t>(base[cut]) & 0xC0) == 0x80) --cut;  // keep UTF-8 whole
     base.resize(cut);
   }
-  for (char& c : base) {
-    if (unsafeNameChar(c)) c = ' ';
-  }
+  std::replace_if(base.begin(), base.end(), unsafeNameChar, ' ');
   while (!base.empty() && (base.back() == ' ' || base.back() == '.')) base.pop_back();
   if (base.empty()) base = "note";
 
