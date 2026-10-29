@@ -7,6 +7,8 @@
 #include <algorithm>
 #include <cstring>
 
+#include "NoteMarkdown.h"
+
 namespace notes {
 namespace {
 constexpr size_t TITLE_PEEK_BYTES = 320;
@@ -50,39 +52,48 @@ bool unsafeNameChar(const char c) {
 }
 }  // namespace
 
-std::string titleOf(const std::string& text) {
+namespace {
+// The first non-blank line as shown (without markup), and where it ends.
+std::string firstLine(const std::string& text, size_t& lineEnd) {
   size_t start = 0;
   while (start < text.size()) {
     size_t end = text.find('\n', start);
     if (end == std::string::npos) end = text.size();
-    size_t b = start;
-    while (b < end && (text[b] == '#' || text[b] == ' ' || text[b] == '\t')) ++b;
-    size_t e = end;
-    while (e > b && (text[e - 1] == ' ' || text[e - 1] == '\r' || text[e - 1] == '\t')) --e;
-    if (e > b) return text.substr(b, e - b);
+    std::string line = note_md::plainText(text.substr(start, end - start));
+    size_t b = 0;
+    while (b < line.size() && (line[b] == ' ' || line[b] == '\t' || line[b] == '\r')) ++b;
+    size_t e = line.size();
+    while (e > b && (line[e - 1] == ' ' || line[e - 1] == '\t' || line[e - 1] == '\r')) --e;
+    if (e > b) {
+      lineEnd = end;
+      return line.substr(b, e - b);
+    }
     start = end + 1;
   }
+  lineEnd = text.size();
   return {};
+}
+}  // namespace
+
+std::string titleOf(const std::string& text) {
+  size_t end = 0;
+  return firstLine(text, end);
 }
 
 std::string previewOf(const std::string& text, const size_t maxBytes) {
-  // Skip to the end of the title line (the first non-blank one).
   size_t i = 0;
-  while (i < text.size() && (text[i] == '\n' || text[i] == ' ' || text[i] == '\t' || text[i] == '#')) ++i;
-  i = text.find('\n', i);
+  firstLine(text, i);
   std::string out;
-  if (i == std::string::npos) return out;
-  out.reserve(std::min(maxBytes, text.size() - i));
-  bool lineStart = true;
-  for (; i < text.size() && out.size() < maxBytes; ++i) {
-    const char c = text[i];
-    if (c == '\n' || c == '\t' || c == ' ') {
+  if (i >= text.size()) return out;
+  // Markup goes, lines join with spaces; three bytes of source per shown byte is plenty.
+  const std::string shown = note_md::plainText(text.substr(i, std::min(text.size() - i, maxBytes * 3)));
+  out.reserve(maxBytes);
+  for (size_t k = 0; k < shown.size() && out.size() < maxBytes; ++k) {
+    const char c = shown[k];
+    if (c == '\n' || c == '\t' || c == ' ' || c == '\r') {
       if (!out.empty() && out.back() != ' ') out.push_back(' ');
-      lineStart = lineStart || c == '\n';
       continue;
     }
-    if (lineStart && c == '#') continue;
-    lineStart = false;
     out.push_back(c);
   }
   // Cut back to a whole UTF-8 sequence if the byte budget split one.

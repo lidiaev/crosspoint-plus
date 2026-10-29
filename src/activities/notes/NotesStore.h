@@ -30,9 +30,9 @@ bool remove(const std::string& path);
 bool setPinned(const std::string& path, bool pinned);
 // Saves the text under `to`, deletes `from`, and carries its pin over.
 bool move(const std::string& from, const std::string& to, const std::string& text);
-// Title shown for a note: its first non-empty line, without leading '#'.
+// Title shown for a note: its first non-empty line, without Markdown markup.
 std::string titleOf(const std::string& text);
-// Up to maxBytes of the text after the title line, newlines folded to spaces.
+// Up to maxBytes of the text after the title line, without markup, on one line.
 std::string previewOf(const std::string& text, size_t maxBytes);
 // A free "/notes/<title>.md" path for the text, keeping `current` when it already matches.
 std::string pathFor(const std::string& text, const std::string& current);

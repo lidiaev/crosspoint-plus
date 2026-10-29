@@ -10,30 +10,51 @@ bool isWordByte(const char c) {
   return u >= 0x80 || (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
 }
 
-void setGlyph(std::vector<uint8_t>& attrs, const size_t i, const Glyph glyph) {
-  attrs[i] = static_cast<uint8_t>((attrs[i] & ~GLYPH_MASK) | (static_cast<uint8_t>(glyph) << GLYPH_SHIFT));
+void setGlyph(std::vector<Attr>& attrs, const size_t i, const Glyph glyph) {
+  attrs[i] = static_cast<Attr>((attrs[i] & ~GLYPH_MASK) | (static_cast<Attr>(glyph) << GLYPH_SHIFT));
 }
 
-void hide(std::vector<uint8_t>& attrs, const size_t from, const size_t to) {
+void hide(std::vector<Attr>& attrs, const size_t from, const size_t to) {
   for (size_t i = from; i < to; ++i) attrs[i] |= HIDDEN;
 }
 
-void apply(std::vector<uint8_t>& attrs, const size_t from, const size_t to, const uint8_t bits) {
+void apply(std::vector<Attr>& attrs, const size_t from, const size_t to, const Attr bits) {
   for (size_t i = from; i < to; ++i) attrs[i] |= bits;
 }
 
-bool plain(const std::vector<uint8_t>& attrs, const size_t i) { return (attrs[i] & (HIDDEN | CODE)) == 0; }
+bool plain(const std::vector<Attr>& attrs, const size_t i) { return (attrs[i] & (HIDDEN | NO_INLINE)) == 0; }
 
 // Inline markup in [from, to): `code`, **bold**, __bold__, ~~strike~~, *italic*, _italic_.
-void inlineSpans(const std::string& text, const size_t from, const size_t to, std::vector<uint8_t>& attrs) {
+void inlineSpans(const std::string& text, const size_t from, const size_t to, std::vector<Attr>& attrs) {
   for (size_t i = from; i < to; ++i) {
     if (text[i] != '`') continue;
     const size_t close = text.find('`', i + 1);
     if (close == std::string::npos || close >= to) break;
-    apply(attrs, i, close + 1, CODE);
+    apply(attrs, i, close + 1, CODE | NO_INLINE);
     setGlyph(attrs, i, Glyph::CodeEdge);
     setGlyph(attrs, close, Glyph::CodeEdge);
     i = close;
+  }
+
+  // [text](url) shows the text underlined; a bare http(s) URL is underlined as is.
+  for (size_t i = from; i < to; ++i) {
+    if (!plain(attrs, i)) continue;
+    if (text[i] == '[') {
+      const size_t close = text.find(']', i + 1);
+      if (close == std::string::npos || close + 1 >= to || close == i + 1 || text[close + 1] != '(') continue;
+      const size_t end = text.find(')', close + 2);
+      if (end == std::string::npos || end >= to) continue;
+      hide(attrs, i, i + 1);
+      apply(attrs, i + 1, close, LINK);
+      apply(attrs, close, end + 1, HIDDEN | NO_INLINE);
+      i = end;
+    } else if ((i == from || text[i - 1] == ' ' || text[i - 1] == '(') &&
+               (text.compare(i, 7, "http://") == 0 || text.compare(i, 8, "https://") == 0)) {
+      size_t end = i;
+      while (end < to && text[end] != ' ') ++end;
+      apply(attrs, i, end, LINK | NO_INLINE);
+      i = end;
+    }
   }
 
   static constexpr const char* PAIRS[] = {"**", "__", "~~"};
@@ -94,7 +115,7 @@ bool isCheckbox(const std::string& text, const size_t i, const size_t end) {
          (i + 5 == end || text[i + 5] == ' ');
 }
 
-void paragraph(const std::string& text, const size_t start, const size_t end, std::vector<uint8_t>& attrs) {
+void paragraph(const std::string& text, const size_t start, const size_t end, std::vector<Attr>& attrs) {
   size_t i = start;
   while (i < end && text[i] == ' ') ++i;
   if (i == end) return;
@@ -140,7 +161,7 @@ void paragraph(const std::string& text, const size_t start, const size_t end, st
 
 }  // namespace
 
-void style(const std::string& text, const size_t rawStart, std::vector<uint8_t>& attrs) {
+void style(const std::string& text, const size_t rawStart, std::vector<Attr>& attrs) {
   attrs.assign(text.size(), 0);
   size_t start = 0;
   while (start <= text.size()) {
@@ -149,13 +170,35 @@ void style(const std::string& text, const size_t rawStart, std::vector<uint8_t>&
     paragraph(text, start, end, attrs);
     if (start == rawStart) {
       // The paragraph being edited shows its markup; styles still apply.
-      for (size_t i = start; i < end; ++i) attrs[i] &= static_cast<uint8_t>(~(HIDDEN | GLYPH_MASK));
+      for (size_t i = start; i < end; ++i) attrs[i] &= static_cast<Attr>(~(HIDDEN | GLYPH_MASK));
     }
     start = end + 1;
   }
 }
 
-int headingLevel(const std::string& text, const std::vector<uint8_t>& attrs, const size_t start) {
+std::string plainText(const std::string& text) {
+  std::vector<Attr> attrs;
+  style(text, std::string::npos, attrs);
+  std::string out;
+  out.reserve(text.size());
+  for (size_t i = 0; i < text.size(); ++i) {
+    const Attr a = attrs[i];
+    if (a & HIDDEN) continue;
+    switch (glyphOf(a)) {
+      case Glyph::Bullet:
+        out += "•";
+        continue;
+      case Glyph::None:
+        out += text[i];
+        continue;
+      default:
+        continue;
+    }
+  }
+  return out;
+}
+
+int headingLevel(const std::string& text, const std::vector<Attr>& attrs, const size_t start) {
   if (start >= text.size() || (attrs[start] & CODE)) return 0;
   size_t i = start;
   while (i < text.size() && text[i] == ' ') ++i;
