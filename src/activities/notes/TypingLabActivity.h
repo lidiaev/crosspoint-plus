@@ -25,7 +25,7 @@ class TypingLabActivity final : public Activity {
   bool skipLoopDelay() override { return true; }
 
  private:
-  enum class Control : uint8_t { None, Back, Lut, Window, Clear };
+  enum class Control : uint8_t { None, Back, Hit, Dot, Clear };
 
   static constexpr uint8_t KB_ROWS = 4;
   static constexpr uint8_t KB_COLS = 14;
@@ -48,6 +48,12 @@ class TypingLabActivity final : public Activity {
   std::atomic<uint32_t> lastKeyFrameAt{0};  // 0 = idle cleanup already done
   std::atomic<uint32_t> pressedShownAt{0};  // 0 = no key shown inverted
   std::atomic<bool> windowed{true};
+  std::atomic<bool> hitDelay{false};  // resolve the key ~30 ms after touch-down
+  std::atomic<bool> showDot{true};    // mark where the last key press registered
+  std::atomic<int16_t> dotX{-1};
+  std::atomic<int16_t> dotY{-1};
+  bool pendingPress = false;
+  uint32_t pendingDownAt = 0;
   uint32_t liftedAt = 0;
   bool contactActive = false;
   int16_t contactValue = INT16_MIN;  // key under the handled contact (for Backspace repeat)
@@ -82,6 +88,7 @@ class TypingLabActivity final : public Activity {
 
   void enqueue(int16_t value, uint32_t downMs);
   bool keyAt(int x, int y, int16_t& value) const;
+  void commitPress(int x, int y, uint32_t downMs);
   Control controlAt(int x, int y) const;
   int barHeight() const;
   // Applies one key; returns true when the keyboard layout changed.

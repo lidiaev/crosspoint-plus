@@ -108,8 +108,8 @@ TypingLabActivity::Control TypingLabActivity::controlAt(const int x, const int y
   if (y < 0 || y >= barHeight()) return Control::None;
   const int quarter = renderer.getScreenWidth() / 4;
   if (x < quarter) return Control::Back;
-  if (x < 2 * quarter) return Control::Lut;
-  if (x < 3 * quarter) return Control::Window;
+  if (x < 2 * quarter) return Control::Hit;
+  if (x < 3 * quarter) return Control::Dot;
   return Control::Clear;
 }
 
@@ -149,9 +149,9 @@ void TypingLabActivity::loop() {
     requestUpdate();
   }
   if (!held) {
-    if (contactActive) {
-      liftedAt = now;
-    }
+    if (pendingPress) commitPress(contactX, contactY, pendingDownAt);  // lifted before the delay ran out
+    pendingPress = false;
+    if (contactActive) liftedAt = now;
     contactActive = false;
     contactValue = INT16_MIN;
     return;
@@ -159,11 +159,20 @@ void TypingLabActivity::loop() {
   // The touch controller reports one point: when the next finger lands before the
   // previous one lifts, the point jumps to the new key. Treat a jump as a new press.
   constexpr int ROLLOVER_JUMP_PX = 24;
+  constexpr uint32_t HIT_DELAY_MS = 30;
   if (contactActive) {
     const bool jumped = abs(tx - contactX) > ROLLOVER_JUMP_PX || abs(ty - contactY) > ROLLOVER_JUMP_PX;
-    contactX = tx;
-    contactY = ty;
-    if (!jumped) return;
+    if (!jumped) {
+      contactX = tx;
+      contactY = ty;
+      if (pendingPress && now - pendingDownAt >= HIT_DELAY_MS) {
+        pendingPress = false;
+        commitPress(tx, ty, pendingDownAt);
+      }
+      return;
+    }
+    if (pendingPress) commitPress(contactX, contactY, pendingDownAt);  // the previous finger's press
+    pendingPress = false;
   }
   contactActive = true;
   contactX = tx;
@@ -174,15 +183,13 @@ void TypingLabActivity::loop() {
     case Control::Back:
       onGoHome();
       return;
-    case Control::Lut:
-      lutIndex = (lutIndex.load() + 1) % LUT_COUNT;
-      applyLut();
+    case Control::Hit:
+      hitDelay = !hitDelay.load();
       fullRedraw = true;
       requestUpdate();
       return;
-    case Control::Window:
-      windowed = !windowed.load();
-      freeink::uc8279WindowedFast = windowed.load();
+    case Control::Dot:
+      showDot = !showDot.load();
       fullRedraw = true;
       requestUpdate();
       return;
@@ -195,15 +202,23 @@ void TypingLabActivity::loop() {
       break;
   }
 
-  int16_t value = 0;
-  if (!keyAt(tx, ty, value)) {
-    contactActive = false;
+  if (hitDelay.load()) {
+    pendingPress = true;
+    pendingDownAt = now;
     return;
   }
+  commitPress(tx, ty, now);
+}
+
+void TypingLabActivity::commitPress(const int x, const int y, const uint32_t downMs) {
+  int16_t value = 0;
+  if (!keyAt(x, y, value)) return;
   contactValue = value;
-  contactDownAt = now;
-  nextRepeatAt = now + 450;
-  enqueue(value, now);
+  contactDownAt = downMs;
+  nextRepeatAt = downMs + 450;
+  dotX = static_cast<int16_t>(x);
+  dotY = static_cast<int16_t>(y);
+  enqueue(value, downMs);
   requestUpdate();
 }
 
@@ -384,7 +399,9 @@ void TypingLabActivity::drawBars() const {
   } else {
     snprintf(lutLabel, sizeof(lutLabel), "LUT otp");
   }
-  const char* labels[4] = {"< Back", lutLabel, windowed.load() ? "Win on" : "Win off", "Clear"};
+  (void)lutLabel;
+  const char* labels[4] = {"< Back", hitDelay.load() ? "Hit 30ms" : "Hit 0", showDot.load() ? "Dot on" : "Dot off",
+                           "Clear"};
   for (int i = 0; i < 4; ++i) {
     const int width = renderer.getTextWidth(SMALL_FONT_ID, labels[i]);
     renderer.drawText(SMALL_FONT_ID, i * quarter + (quarter - width) / 2, MARGIN, labels[i]);
@@ -461,42 +478,119 @@ void TypingLabActivity::drawText(const bool cursor) const {
   if (cursor) renderer.fillRect(cursorX + 1, y - lineHeight, 2, lineHeight);
 }
 
-void TypingLabActivity::drawKeyboard(const int16_t pressed) {
-  const auto& metrics = UITheme::getInstance().getMetrics();
-  const fui::KeyboardLayout& layout = currentLayout();
-  int16_t selected = -1;
-  if (pressed != INT16_MIN) {
-    int16_t index = 0;
-    for (uint8_t r = 0; r < layout.rowCount && selected < 0; ++r) {
-      for (uint8_t c = 0; c < layout.rows[r].count; ++c, ++index) {
-        if (layout.rows[r].keys[c].value == pressed) {
-          selected = index;
-          break;
-        }
-      }
-    }
+namespace {
+// System-key glyphs in one stroke weight, centered in the key rect.
+void drawShiftGlyph(const GfxRenderer& r, int cx, int cy, bool on, bool caps, bool ink) {
+  const int xs[7] = {cx, cx + 11, cx + 5, cx + 5, cx - 5, cx - 5, cx - 11};
+  const int ys[7] = {cy - 12, cy - 1, cy - 1, cy + 9, cy + 9, cy - 1, cy - 1};
+  if (on) {
+    r.fillPolygon(xs, ys, 7, ink);
+  } else {
+    for (int i = 0; i < 7; ++i) r.drawLine(xs[i], ys[i], xs[(i + 1) % 7], ys[(i + 1) % 7], 2, ink);
   }
+  if (caps) r.fillRect(cx - 5, cy + 12, 11, 2, ink);
+}
+
+void drawDeleteGlyph(const GfxRenderer& r, int cx, int cy, bool ink) {
+  const int xs[5] = {cx - 14, cx - 6, cx + 13, cx + 13, cx - 6};
+  const int ys[5] = {cy, cy - 9, cy - 9, cy + 9, cy + 9};
+  for (int i = 0; i < 5; ++i) r.drawLine(xs[i], ys[i], xs[(i + 1) % 5], ys[(i + 1) % 5], 2, ink);
+  r.drawLine(cx - 1, cy - 4, cx + 7, cy + 4, 2, ink);
+  r.drawLine(cx - 1, cy + 4, cx + 7, cy - 4, 2, ink);
+}
+
+void drawReturnGlyph(const GfxRenderer& r, int cx, int cy, bool ink) {
+  r.drawLine(cx + 10, cy - 9, cx + 10, cy + 3, 2, ink);
+  r.drawLine(cx + 10, cy + 3, cx - 10, cy + 3, 2, ink);
+  r.drawLine(cx - 10, cy + 3, cx - 4, cy - 3, 2, ink);
+  r.drawLine(cx - 10, cy + 3, cx - 4, cy + 9, 2, ink);
+}
+
+void drawGlobeGlyph(const GfxRenderer& r, int cx, int cy, bool ink) {
+  constexpr int R = 10;
+  r.drawArc(R, cx, cy, -1, -1, 2, ink);
+  r.drawArc(R, cx, cy, 1, -1, 2, ink);
+  r.drawArc(R, cx, cy, -1, 1, 2, ink);
+  r.drawArc(R, cx, cy, 1, 1, 2, ink);
+  r.drawLine(cx - R, cy, cx + R, cy, 1, ink);
+  r.drawLine(cx, cy - R, cx, cy + R, 1, ink);
+  r.drawLine(cx - 8, cy - 5, cx + 8, cy - 5, 1, ink);
+  r.drawLine(cx - 8, cy + 5, cx + 8, cy + 5, 1, ink);
+}
+}  // namespace
+
+// Keys are drawn here rather than by the FreeInkUI component so system keys get
+// glyphs in one style and letters are never truncated. Hit rects are published
+// for loop() through the same interaction buffer.
+void TypingLabActivity::drawKeyboard(const int16_t pressed) {
+  constexpr int GAP = 6;
+  constexpr int ROW_GAP = 8;
+  constexpr int RADIUS = 7;
+  const fui::KeyboardLayout& layout = currentLayout();
+  const fui::Rect kb = keyboardRect();
+  const int rowHeight = (kb.height - ROW_GAP * (layout.rowCount - 1)) / layout.rowCount;
+  const bool upper = shifted || capsLock;
 
   interactions.beginPublishCycle();
-  fui::GfxRendererTarget target(renderer);
-  target.setFont(fui::GfxRendererTarget::FONT_SMALL, SMALL_FONT_ID);
-  target.setFont(fui::GfxRendererTarget::FONT_BODY, UI_12_FONT_ID);
-  const fui::DeviceContext device = target.deviceContext();
-  const fui::InputSnapshot noInput{};
-  fui::Frame<56> frame(target, device, noInput, interactions);
-
-  fui::KeyboardProps props;
-  props.layout = &layout;
-  props.keyAction = ACTION_KEY;
-  props.okLabel = "\xE2\x86\xB5";  // return arrow: Enter inserts a newline here
-  props.inputMask = static_cast<uint16_t>(fui::InputTouch);
-  props.selectedIndex = selected;  // drawn inverted
-  props.labelText.font = fui::GfxRendererTarget::FONT_BODY;
-  props.altText.font = fui::GfxRendererTarget::FONT_SMALL;
-  props.gap = 6;
-  props.rowGap = 8;
-  props.padding = fui::Insets{0, 0, 0, 0};
-  fui::keyboard(frame, keyboardRect(), props);
+  for (uint8_t row = 0; row < layout.rowCount; ++row) {
+    const fui::KeyboardRow& kr = layout.rows[row];
+    int units = kr.insetUnits * 2;
+    for (uint8_t c = 0; c < kr.count; ++c) units += kr.keys[c].widthUnits ? kr.keys[c].widthUnits : 1;
+    const int unitW = (kb.width - GAP * (kr.count - 1)) / units;
+    const int y = kb.y + row * (rowHeight + ROW_GAP);
+    int x = kb.x + kr.insetUnits * unitW;
+    for (uint8_t c = 0; c < kr.count; ++c) {
+      const fui::KeyboardKey& key = kr.keys[c];
+      const int w = unitW * (key.widthUnits ? key.widthUnits : 1);
+      const bool system = key.kind != fui::KeyKind::Normal && key.kind != fui::KeyKind::Space;
+      const bool down = key.value == pressed;
+      const bool active = key.kind == fui::KeyKind::Shift && !symbols && upper;
+      // Letters: outlined. System keys: light gray, like the darker system keys on iOS.
+      if (down) {
+        renderer.fillRoundedRect(x, y, w, rowHeight, RADIUS, Color::Black);
+      } else if (system) {
+        renderer.fillRoundedRect(x, y, w, rowHeight, RADIUS, Color::LightGray);
+      } else {
+        renderer.drawRoundedRect(x, y, w, rowHeight, 1, RADIUS, true);
+      }
+      const bool ink = !down;
+      const int cx = x + w / 2;
+      const int cy = y + rowHeight / 2;
+      if (key.kind == fui::KeyKind::Shift && !symbols) {
+        drawShiftGlyph(renderer, cx, cy, active, capsLock, ink);
+      } else if (key.kind == fui::KeyKind::Delete) {
+        drawDeleteGlyph(renderer, cx, cy, ink);
+      } else if (key.kind == fui::KeyKind::Ok) {
+        drawReturnGlyph(renderer, cx, cy, ink);
+      } else if (key.kind == fui::KeyKind::Lang) {
+        drawGlobeGlyph(renderer, cx, cy, ink);
+      } else {
+        const char* label = key.label;
+        int font = UI_12_FONT_ID;
+        if (key.kind == fui::KeyKind::Space) {
+          label = layoutId == fui::KeyboardLayoutId::QwertyEn ? "space" : "пробел";
+          font = SMALL_FONT_ID;
+        } else if (key.kind == fui::KeyKind::Mode) {
+          label = symbols ? (layoutId == fui::KeyboardLayoutId::QwertyEn ? "ABC" : "АБВ") : "123";
+          font = SMALL_FONT_ID;
+        } else if (system) {
+          font = SMALL_FONT_ID;
+        }
+        if (label && *label) {
+          const int tw = renderer.getTextWidth(font, label);
+          const int th = renderer.getLineHeight(font);
+          renderer.drawText(font, cx - tw / 2, cy - th / 2 - 2, label, ink);
+        }
+      }
+      fui::Interaction hit;
+      hit.rect = fui::Rect{static_cast<int16_t>(x - GAP / 2), static_cast<int16_t>(y - ROW_GAP / 2),
+                           static_cast<int16_t>(w + GAP), static_cast<int16_t>(rowHeight + ROW_GAP)};
+      hit.action = ACTION_KEY;
+      hit.value = key.value;
+      interactions.addInteraction(hit);
+      x += w + GAP;
+    }
+  }
   interactions.publish();
 }
 
@@ -527,6 +621,15 @@ void TypingLabActivity::render(RenderLock&&) {
   drawBars();
   drawText(true);
   drawKeyboard(pressedKey);
+  const int16_t dx = dotX.load();
+  const int16_t dy = dotY.load();
+  if (showDot.load() && dx >= 0) {
+    // Where the last press registered: a small cross over the keyboard.
+    renderer.drawLine(dx - 7, dy, dx + 7, dy, 4, false);  // white halo: visible on an inverted key
+    renderer.drawLine(dx, dy - 7, dx, dy + 7, 4, false);
+    renderer.drawLine(dx - 6, dy, dx + 6, dy, 2, true);
+    renderer.drawLine(dx, dy - 6, dx, dy + 6, 2, true);
+  }
 
   const uint32_t drawDone = millis();
   if (whole) {
