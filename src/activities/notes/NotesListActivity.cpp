@@ -190,7 +190,7 @@ void NotesListActivity::onRowLongPress(const int index) {
   const notes::NoteInfo note = notesList[i];
   const char* options[] = {tr(STR_OPEN), note.pinned ? tr(STR_UNPIN_NOTE) : tr(STR_PIN_NOTE), tr(STR_DELETE)};
   app.clearTapFlash();
-  optionPopup.show(note.title.c_str(), options, 3, 0, [this, index, note](const int choice) {
+  optionPopup.showActions(options, 3, [this, index, note](const int choice) {
     switch (choice) {
       case 0:
         activateIndex(index);

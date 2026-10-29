@@ -9,7 +9,7 @@
 #include "components/typing/TouchTracker.h"
 #include "components/typing/TypingKeyboard.h"
 
-// Plain-text editor for one note. Keys commit on touch-down and reach the panel
+// Markdown editor for one note, rendered in place (see NoteMarkdown.h). Keys commit on touch-down and reach the panel
 // through the fast typing display mode (short LUT, changed regions only); an
 // idle repaint with the factory waveform clears residue and autosaves.
 class NoteEditorActivity final : public Activity {
@@ -68,8 +68,11 @@ class NoteEditorActivity final : public Activity {
   TypingKeyboard keyboard;
   int16_t pressedKey = INT16_MIN;
   std::vector<uint32_t> lineStarts;  // byte offset of each wrapped line
+  std::vector<uint8_t> attrs;        // note_md attributes, one per byte of text
+  bool styleStale = true;            // text changed since attrs were computed
   int topLine = 0;
-  uint8_t widthCache[0x460] = {};  // advance per code point below U+0460, 0 = unknown
+  static constexpr uint32_t CACHED_CPS = 0x460;
+  uint8_t widthCache[4][CACHED_CPS] = {};  // advance per style and code point, 0 = unknown
 
   void enqueue(const Event& event);
   bool popEvent(Event& event);
@@ -85,7 +88,13 @@ class NoteEditorActivity final : public Activity {
   int textTop() const;
   int textBottom() const;
   int visibleLines() const;
-  int advance(uint32_t cp);
+  int advance(uint32_t cp, uint8_t style);
+  int widthAt(size_t i, uint32_t cp);
+  int boxSize() const;
+  void restyle();
+  bool toggleCheckboxAt(int x, int y);
+  void insertNewline();
+  void drawGlyph(uint8_t attr, int x, int y);
   void wrap();
   int lineOf(size_t offset) const;
   void keepCursorVisible();

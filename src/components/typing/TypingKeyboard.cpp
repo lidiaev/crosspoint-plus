@@ -211,6 +211,21 @@ bool TypingKeyboard::autoCapitalize(const std::string& text, const size_t cursor
   if (!start && cursor >= 2 && text[cursor - 1] == ' ') {
     const char p = text[cursor - 2];
     start = p == '.' || p == '!' || p == '?';
+    if (!start) {
+      // Right after a Markdown marker at the start of a line ("- ", "- [ ] ", "# ", "2. ").
+      const size_t nl = text.rfind('\n', cursor - 1);
+      const size_t from = nl == std::string::npos ? 0 : nl + 1;
+      bool marker = false;
+      start = true;
+      for (size_t i = from; i < cursor && start; ++i) {
+        const char c = text[i];
+        marker = marker || c == '-' || c == '*' || c == '+' || c == '>' || c == '#' ||
+                 (c == '.' && i > from && text[i - 1] >= '0' && text[i - 1] <= '9');
+        start = c == ' ' || c == '[' || c == ']' || c == 'x' || c == '.' || (c >= '0' && c <= '9') || c == '-' ||
+                c == '*' || c == '+' || c == '>' || c == '#';
+      }
+      start = start && marker;
+    }
   }
   if (start == shifted) return false;
   shifted = start;

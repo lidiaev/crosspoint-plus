@@ -10,6 +10,7 @@
 #include <cstring>
 
 #include "MappedInputManager.h"
+#include "NoteMarkdown.h"
 #include "NotesListActivity.h"
 #include "NotesStore.h"
 #include "activities/ActivityManager.h"
@@ -24,7 +25,9 @@ namespace fui = freeink::ui;
 
 namespace {
 constexpr int MARGIN = 14;
-constexpr int TEXT_FONT = UI_12_FONT_ID;
+constexpr int TEXT_FONT = NOTOSANS_12_FONT_ID;  // has italic, unlike the UI font
+constexpr int BOX_GAP = 10;                     // after a checkbox
+constexpr int QUOTE_WIDTH = 14;
 constexpr uint32_t CLEANUP_IDLE_MS = 1200;  // idle repaint + autosave after this pause
 constexpr uint32_t RESTORE_IDLE_MS = 300;   // the pressed key returns to normal after this pause
 constexpr uint32_t REPEAT_DELAY_MS = 450;
@@ -231,8 +234,9 @@ void NoteEditorActivity::trackDrag(const uint32_t now, bool& update) {
 
 // --- render task ---------------------------------------------------------------
 
-int NoteEditorActivity::advance(const uint32_t cp) {
-  if (cp < sizeof(widthCache) && widthCache[cp] != 0) return widthCache[cp];
+int NoteEditorActivity::advance(const uint32_t cp, const uint8_t style) {
+  uint8_t* cache = widthCache[style & note_md::STYLE_MASK];
+  if (cp < CACHED_CPS && cache[cp] != 0) return cache[cp];
   char buf[4] = {};
   if (cp < 0x80) {
     buf[0] = static_cast<char>(cp);
@@ -244,9 +248,44 @@ int NoteEditorActivity::advance(const uint32_t cp) {
     buf[1] = static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
     buf[2] = static_cast<char>(0x80 | (cp & 0x3F));
   }
-  const int w = std::max(1, renderer.getTextAdvanceX(TEXT_FONT, buf, EpdFontFamily::REGULAR));
-  if (cp < sizeof(widthCache)) widthCache[cp] = static_cast<uint8_t>(std::min(w, 255));
+  const int w = std::max(
+      1, renderer.getTextAdvanceX(TEXT_FONT, buf, static_cast<EpdFontFamily::Style>(style & note_md::STYLE_MASK)));
+  if (cp < CACHED_CPS) cache[cp] = static_cast<uint8_t>(std::min(w, 255));
   return w;
+}
+
+int NoteEditorActivity::boxSize() const { return renderer.getLineHeight(TEXT_FONT) * 11 / 20; }
+
+// Width of the code point at offset i as displayed: markup is zero-width, list
+// markers take their glyph's width.
+int NoteEditorActivity::widthAt(const size_t i, const uint32_t cp) {
+  const uint8_t a = attrs[i];
+  if (a & note_md::HIDDEN) return 0;
+  switch (note_md::glyphOf(a)) {
+    case note_md::Glyph::Bullet:
+      return advance(0x2022, 0);
+    case note_md::Glyph::Box:
+    case note_md::Glyph::BoxChecked:
+      return boxSize() + BOX_GAP;
+    case note_md::Glyph::Quote:
+      return QUOTE_WIDTH;
+    case note_md::Glyph::Rule:
+      return 0;
+    case note_md::Glyph::None:
+      break;
+  }
+  return advance(cp, a);
+}
+
+// The paragraph with the cursor shows its markup while the keyboard is up.
+void NoteEditorActivity::restyle() {
+  size_t raw = std::string::npos;
+  if (keyboardShown.load()) {
+    const size_t nl = cursor == 0 ? std::string::npos : text.rfind('\n', cursor - 1);
+    raw = nl == std::string::npos ? 0 : nl + 1;
+  }
+  note_md::style(text, raw, attrs);
+  styleStale = false;
 }
 
 // Word wrap: break after the last space that fits; a word wider than the line breaks anywhere.
@@ -269,7 +308,7 @@ void NoteEditorActivity::wrap() {
       width = widthSinceBreak = 0;
       continue;
     }
-    const int w = advance(cp);
+    const int w = widthAt(i, cp);
     if (width + w > maxWidth && i > lineStart && cp != ' ') {
       if (lastBreak != std::string::npos && lastBreak > lineStart) {
         lineStarts.push_back(static_cast<uint32_t>(lastBreak));
@@ -311,6 +350,7 @@ void NoteEditorActivity::insertText(const char* utf8) {
   text.insert(cursor, utf8, len);
   cursor += len;
   dirty = true;
+  styleStale = true;
 }
 
 void NoteEditorActivity::deleteBackward() {
@@ -320,6 +360,7 @@ void NoteEditorActivity::deleteBackward() {
   text.erase(i, cursor - i);
   cursor = i;
   dirty = true;
+  styleStale = true;
 }
 
 // Replaces the е just typed with ё when the key is held.
@@ -334,6 +375,7 @@ void NoteEditorActivity::applyAlternate(const int16_t value) {
   if (cursor < 2 || text.compare(cursor - 2, 2, base) != 0) return;
   text.replace(cursor - 2, 2, alt);
   dirty = true;
+  styleStale = true;
 }
 
 void NoteEditorActivity::applyKey(const int16_t value, const uint32_t downMs, bool& layoutChanged) {
@@ -351,7 +393,7 @@ void NoteEditorActivity::applyKey(const int16_t value, const uint32_t downMs, bo
       deleteBackward();
       break;
     case TypingKeyboard::Action::Enter:
-      insertText("\n");
+      insertNewline();
       break;
     case TypingKeyboard::Action::LayoutChanged:
       layoutChanged = true;
@@ -362,7 +404,53 @@ void NoteEditorActivity::applyKey(const int16_t value, const uint32_t downMs, bo
   if (keyboard.autoCapitalize(text, cursor)) layoutChanged = true;
 }
 
+// Enter continues a list; on an empty item it ends the list instead.
+void NoteEditorActivity::insertNewline() {
+  const size_t nl = cursor == 0 ? std::string::npos : text.rfind('\n', cursor - 1);
+  const size_t start = nl == std::string::npos ? 0 : nl + 1;
+  size_t end = text.find('\n', cursor);
+  if (end == std::string::npos) end = text.size();
+  const note_md::ListPrefix prefix = note_md::listPrefix(text, start, end);
+  if (prefix.length == 0 || cursor < start + prefix.length) {
+    insertText("\n");
+  } else if (prefix.empty && cursor == end) {
+    text.erase(start, prefix.length);
+    cursor = start;
+    dirty = true;
+    styleStale = true;
+  } else {
+    insertText(("\n" + prefix.next).c_str());
+  }
+}
+
+// A tap on a checkbox toggles it instead of placing the cursor.
+bool NoteEditorActivity::toggleCheckboxAt(const int x, const int y) {
+  if (styleStale) restyle();
+  const int line = topLine + (y - textTop()) / renderer.getLineHeight(TEXT_FONT);
+  if (y < textTop() || line >= static_cast<int>(lineStarts.size())) return false;
+  const size_t end = line + 1 < static_cast<int>(lineStarts.size()) ? lineStarts[line + 1] : text.size();
+  int penX = MARGIN;
+  for (size_t i = lineStarts[line]; i < end;) {
+    uint32_t cp = 0;
+    const size_t len = decode(text, i, cp);
+    if (cp == '\n') break;
+    const int w = widthAt(i, cp);
+    const note_md::Glyph glyph = note_md::glyphOf(attrs[i]);
+    if ((glyph == note_md::Glyph::Box || glyph == note_md::Glyph::BoxChecked) && x >= penX - BOX_GAP && x < penX + w) {
+      const size_t mark = note_md::checkboxMark(i);
+      text[mark] = text[mark] == ' ' ? 'x' : ' ';
+      dirty = true;
+      styleStale = true;
+      return true;
+    }
+    penX += w;
+    i += len;
+  }
+  return false;
+}
+
 void NoteEditorActivity::placeCursor(const int x, const int y) {
+  if (styleStale) restyle();
   const int lineHeight = renderer.getLineHeight(TEXT_FONT);
   const int line = std::clamp(topLine + (y - textTop()) / lineHeight, 0, static_cast<int>(lineStarts.size()) - 1);
   size_t i = lineStarts[line];
@@ -372,7 +460,7 @@ void NoteEditorActivity::placeCursor(const int x, const int y) {
     uint32_t cp = 0;
     const size_t len = decode(text, i, cp);
     if (cp == '\n') break;
-    const int w = advance(cp);
+    const int w = widthAt(i, cp);
     if (x < penX + w / 2) break;
     penX += w;
     i += len;
@@ -394,6 +482,7 @@ void NoteEditorActivity::handleEvent(const Event& event, bool& layoutChanged) {
       applyAlternate(event.value);
       break;
     case EventType::TapText:
+      if (toggleCheckboxAt(event.x, event.y)) break;
       placeCursor(event.x, event.y);
       if (!keyboardShown.load()) {
         keyboardShown = true;
@@ -440,29 +529,86 @@ void NoteEditorActivity::drawHeader() const {
                            keyboardShown.load() ? icon_keyboard_off_32 : icon_keyboard_32);
 }
 
+void NoteEditorActivity::drawGlyph(const uint8_t attr, const int x, const int y) {
+  const int lineHeight = renderer.getLineHeight(TEXT_FONT);
+  switch (note_md::glyphOf(attr)) {
+    case note_md::Glyph::Bullet:
+      renderer.drawText(TEXT_FONT, x, y, "•");
+      break;
+    case note_md::Glyph::Box:
+    case note_md::Glyph::BoxChecked: {
+      const int size = boxSize();
+      const int bx = x + 1;
+      const int by = y + (lineHeight - size) / 2 + 1;
+      renderer.drawRect(bx, by, size, size, 2, true);
+      if (note_md::glyphOf(attr) == note_md::Glyph::BoxChecked) {
+        renderer.drawLine(bx + size / 5, by + size / 2, bx + size * 2 / 5, by + size * 3 / 4, 2, true);
+        renderer.drawLine(bx + size * 2 / 5, by + size * 3 / 4, bx + size * 4 / 5, by + size / 4, 2, true);
+      }
+      break;
+    }
+    case note_md::Glyph::Quote:
+      renderer.fillRect(x + 2, y, 3, lineHeight);
+      break;
+    case note_md::Glyph::Rule:
+      renderer.drawLine(MARGIN, y + lineHeight / 2, renderer.getScreenWidth() - MARGIN, y + lineHeight / 2, 2, true);
+      break;
+    case note_md::Glyph::None:
+      break;
+  }
+}
+
+// Each line is drawn as runs of one style; markup is skipped, list markers
+// become glyphs. Positions come from widthAt so the cursor matches the wrap.
 void NoteEditorActivity::drawText() {
   const int lineHeight = renderer.getLineHeight(TEXT_FONT);
   const int lines = static_cast<int>(lineStarts.size());
   const int last = std::min(lines, topLine + visibleLines());
   const int cursorLine = lineOf(cursor);
-  std::string segment;
+  std::string run;
   int y = textTop();
   for (int l = topLine; l < last; ++l) {
     const size_t start = lineStarts[l];
-    size_t end = l + 1 < lines ? lineStarts[l + 1] : text.size();
-    if (end > start && text[end - 1] == '\n') --end;
-    segment.assign(text, start, end - start);
-    renderer.drawText(TEXT_FONT, MARGIN, y, segment.c_str());
-    if (l == cursorLine) {
-      int x = MARGIN;
-      for (size_t i = start; i < cursor;) {
-        uint32_t cp = 0;
-        const size_t len = decode(text, i, cp);
-        x += advance(cp);
+    const size_t end = l + 1 < lines ? lineStarts[l + 1] : text.size();
+    int x = MARGIN;
+    int runX = x;
+    uint8_t runAttr = 0;
+    int cursorX = -1;
+    const auto flush = [&]() {
+      if (run.empty()) return;
+      renderer.drawText(TEXT_FONT, runX, y, run.c_str(), true,
+                        static_cast<EpdFontFamily::Style>(runAttr & note_md::STYLE_MASK));
+      if (runAttr & note_md::STRIKE) renderer.fillRect(runX, y + lineHeight * 11 / 20, x - runX, 2);
+      run.clear();
+    };
+    for (size_t i = start; i < end;) {
+      if (i == cursor) cursorX = x;
+      uint32_t cp = 0;
+      const size_t len = decode(text, i, cp);
+      if (cp == '\n') break;
+      const uint8_t a = attrs[i];
+      const int w = widthAt(i, cp);
+      if (a & note_md::HIDDEN) {
         i += len;
+        continue;
       }
-      renderer.fillRect(x, y, 2, lineHeight);
+      if (note_md::glyphOf(a) != note_md::Glyph::None) {
+        flush();
+        drawGlyph(a, x, y);
+      } else {
+        const uint8_t style = a & (note_md::STYLE_MASK | note_md::STRIKE);
+        if (!run.empty() && style != runAttr) flush();
+        if (run.empty()) {
+          runX = x;
+          runAttr = style;
+        }
+        run.append(text, i, len);
+      }
+      x += w;
+      i += len;
     }
+    flush();
+    if (l == cursorLine) renderer.fillRect(cursorX >= 0 ? cursorX : x, y, 2, lineHeight);
     y += lineHeight;
   }
 }
@@ -485,7 +631,9 @@ void NoteEditorActivity::render(RenderLock&&) {
   if (cleanup) saveNow();
   if (!whole && events == 0 && !release && !cleanup) return;
 
+  restyle();
   wrap();
+  if (keyEvents > 0) keepCursorVisible();
   // Never scroll past the end: hiding the keyboard pulls the text back down.
   topLine = std::clamp(topLine, 0, std::max(0, static_cast<int>(lineStarts.size()) - visibleLines()));
 
