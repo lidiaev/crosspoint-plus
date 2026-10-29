@@ -16,7 +16,8 @@ namespace fui = freeink::ui;
 
 namespace freeink {
 extern volatile uint8_t uc8279FastPllOverride;
-}
+extern volatile uint8_t uc8279FastLutFrames;
+}  // namespace freeink
 
 namespace {
 constexpr fui::ActionId ACTION_KEY = 1;
@@ -30,6 +31,9 @@ constexpr const char* STRATEGY_NAMES[] = {"1 stock", "2 full", "3 window"};
 // UC8279 PLL (0x30) candidates for fast refreshes; 0 = driver default (0x0E).
 constexpr uint8_t PLL_VALUES[] = {0x00, 0x0F, 0x0D, 0x0A, 0x1E, 0x2E, 0x3E, 0x3F};
 constexpr uint8_t PLL_COUNT = sizeof(PLL_VALUES) / sizeof(PLL_VALUES[0]);
+// Frames of the external single-phase DU LUT; 0 = factory OTP waveform.
+constexpr uint8_t LUT_FRAMES[] = {0, 4, 6, 8, 12, 16};
+constexpr uint8_t LUT_COUNT = sizeof(LUT_FRAMES) / sizeof(LUT_FRAMES[0]);
 
 size_t utf8Next(const std::string& s, size_t i) {
   if (i >= s.size()) return s.size();
@@ -51,6 +55,7 @@ void TypingLabActivity::onEnter() {
 
 void TypingLabActivity::onExit() {
   freeink::uc8279FastPllOverride = 0;
+  freeink::uc8279FastLutFrames = 0;
   Activity::onExit();
 }
 
@@ -79,9 +84,10 @@ int TypingLabActivity::controlBarHeight() const { return renderer.getLineHeight(
 
 // Three equal tap zones across the top bar: back, strategy, clear.
 TypingLabActivity::Control TypingLabActivity::controlAt(const int x, const int y) const {
-  if (y >= controlBarHeight() && y < controlBarHeight() + MARGIN + 2 * renderer.getLineHeight(SMALL_FONT_ID)) {
-    return Control::Pll;
-  }
+  const int statsTop = controlBarHeight();
+  const int line = renderer.getLineHeight(SMALL_FONT_ID);
+  if (y >= statsTop && y < statsTop + MARGIN / 2 + line) return Control::Lut;
+  if (y >= statsTop + MARGIN / 2 + line && y < statsTop + MARGIN + 2 * line) return Control::Pll;
   if (y < 0 || y >= controlBarHeight()) return Control::None;
   const int third = renderer.getScreenWidth() / 3;
   if (x < third) return Control::Back;
@@ -134,6 +140,14 @@ void TypingLabActivity::loop() {
       fullRedraw = true;
       requestUpdate();
       return;
+    case Control::Lut: {
+      const uint8_t next = (lutIndex.load() + 1) % LUT_COUNT;
+      lutIndex = next;
+      freeink::uc8279FastLutFrames = LUT_FRAMES[next];
+      fullRedraw = true;
+      requestUpdate();
+      return;
+    }
     case Control::Pll: {
       const uint8_t next = (pllIndex.load() + 1) % PLL_COUNT;
       pllIndex = next;
@@ -233,13 +247,19 @@ void TypingLabActivity::drawStats() const {
   const int smallHeight = renderer.getLineHeight(SMALL_FONT_ID);
   const uint32_t avg = refreshCount ? latencySumMs / refreshCount : 0;
   const uint8_t pll = PLL_VALUES[pllIndex.load()];
-  snprintf(line, sizeof(line), "key %lums  avg %lums  n %lu  pll %02X", static_cast<unsigned long>(lastLatencyMs),
-           static_cast<unsigned long>(avg), static_cast<unsigned long>(refreshCount), pll ? pll : 0x0E);
+  const uint8_t lut = LUT_FRAMES[lutIndex.load()];
+  char lutName[8];
+  if (lut) {
+    snprintf(lutName, sizeof(lutName), "%uf", lut);
+  } else {
+    snprintf(lutName, sizeof(lutName), "otp");
+  }
+  snprintf(line, sizeof(line), "key %lums  avg %lums  n %lu  lut %s", static_cast<unsigned long>(lastLatencyMs),
+           static_cast<unsigned long>(avg), static_cast<unsigned long>(refreshCount), lutName);
   renderer.drawText(SMALL_FONT_ID, MARGIN, barHeight + MARGIN / 2, line);
-  snprintf(line, sizeof(line), "draw %lums  panel %lums  batch %u  keys %lu  ctl %u/%02X",
+  snprintf(line, sizeof(line), "draw %lums  panel %lums  batch %u  keys %lu  pll %02X",
            static_cast<unsigned long>(lastDrawMs), static_cast<unsigned long>(lastPanelMs), lastBatch,
-           static_cast<unsigned long>(keyCount), static_cast<unsigned>(BoardConfig::ACTIVE.displayController),
-           BoardConfig::ACTIVE.displayControllerVariant);
+           static_cast<unsigned long>(keyCount), pll ? pll : 0x0E);
   renderer.drawText(SMALL_FONT_ID, MARGIN, barHeight + MARGIN / 2 + smallHeight, line);
 }
 

@@ -1,0 +1,60 @@
+diff --git a/libs/display/FreeInkDisplay/src/driver/Uc8279X4Driver.cpp b/libs/display/FreeInkDisplay/src/driver/Uc8279X4Driver.cpp
+index a6e96e4..fdfa2e1 100644
+--- a/libs/display/FreeInkDisplay/src/driver/Uc8279X4Driver.cpp
++++ b/libs/display/FreeInkDisplay/src/driver/Uc8279X4Driver.cpp
+@@ -455,6 +455,29 @@ bool Uc8279X4Driver::displayStart(EpdBus& bus, const uint8_t* fb, const uint8_t*
+   return true;
+ }
+ 
++// CrossPoint Plus lab hooks for fast (DU) refreshes; 0 keeps the stock behavior.
++// uc8279FastPllOverride: PLL (0x30) written after PON. uc8279FastLutFrames: when
++// set, an external single-phase B/W LUT of that many frames replaces the OTP DU.
++volatile uint8_t uc8279FastPllOverride = 0;
++volatile uint8_t uc8279FastLutFrames = 0;
++
++namespace {
++void writeFastBwLuts(EpdBus& bus, uint8_t frames) {
++  const uint8_t f = static_cast<uint8_t>(frames & 0x3F);
++  // Per table: group = {0x01, phase0..3 = (rail << 6) | frames, 0x01, 0x01}; rail 1 = to black, 2 = to white.
++  const uint8_t rails[5] = {0, 0, 2, 1, 0};  // VCOM, WW, BW (to white), WB (to black), BB
++  for (uint8_t t = 0; t < 5; t++) {
++    uint8_t data[GRAY_LUT_LEN] = {};
++    data[0] = 0x01;
++    data[1] = static_cast<uint8_t>((rails[t] << 6) | f);
++    data[5] = 0x01;
++    data[6] = 0x01;
++    bus.cmd(static_cast<uint8_t>(0x20 + t));
++    bus.data(data, GRAY_LUT_LEN);
++  }
++}
++}  // namespace
++
+ void Uc8279X4Driver::startBwRefresh(EpdBus& bus, bool fast) {
+   // Built-in refresh setup, byte-for-byte the stock FW trigger order (RE of
+   // Factory.bin FUN_4214d050 partial / FUN_4214cfe8 full): CDI first — stock
+@@ -474,8 +497,16 @@ void Uc8279X4Driver::startBwRefresh(EpdBus& bus, bool fast) {
+     bus.data(_cfg.gateScan);  // 0xE1 <- 0x02
+   }
+ 
++  const bool customLut = fast && uc8279FastLutFrames != 0;
++  if (customLut) writeFastBwLuts(bus, uc8279FastLutFrames);
++
+   powerOnIfNeeded(bus, " 8279x4_PON");
+ 
++  if (fast && !BoardConfig::isX4Classic()) {
++    bus.cmd(CMD_PLL);
++    bus.data(uc8279FastPllOverride != 0 ? uc8279FastPllOverride : _cfg.pll);
++  }
++
+   if (fast) {
+     // Stock NEVER issues PTIN without a PTL (0x90) window — with PTL unset the
+     // DU scans but develops nothing (first field unit: 443 ms DRF, no image).
+@@ -496,7 +527,7 @@ void Uc8279X4Driver::startBwRefresh(EpdBus& bus, bool fast) {
+     bus.data(0x01);
+   }
+   bus.cmd(CMD_PANEL_SETTING);
+-  bus.data(static_cast<uint8_t>(_cfg.psr0 & 0xDF));  // REG cleared -> OTP (0x13)
++  bus.data(customLut ? _cfg.psr0 : static_cast<uint8_t>(_cfg.psr0 & 0xDF));  // REG cleared -> OTP (0x13)
+   bus.data(_cfg.psr1);
+   bus.cmd(CMD_DISPLAY_REFRESH);
+   // Confirm the waveform started (BUSY dropped) before returning, so
