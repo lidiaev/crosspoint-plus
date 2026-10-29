@@ -44,6 +44,8 @@ class TypingLabActivity final : public Activity {
   std::atomic<uint8_t> lutIndex{2};         // 8/16
   std::atomic<uint32_t> lastKeyFrameAt{0};  // 0 = idle cleanup already done
   bool contactActive = false;
+  int contactX = 0;  // last sampled position of the handled contact
+  int contactY = 0;
 
   // Render task state.
   std::string text;
@@ -51,7 +53,6 @@ class TypingLabActivity final : public Activity {
   bool showLangKey = false;
   bool shifted = false;
   bool symbols = false;
-  bool cursorOn = true;
   int16_t pressedKey = INT16_MIN;
   freeink::ui::InteractionBuffer<56> interactions;
   uint32_t lastLatencyMs = 0;
@@ -59,6 +60,7 @@ class TypingLabActivity final : public Activity {
   uint32_t latencySumMs = 0;
   uint32_t refreshCount = 0;
   uint32_t cleanupCount = 0;
+  uint32_t keyCount = 0;
 
   void enqueue(int16_t value, uint32_t downMs);
   bool keyAt(int x, int y, int16_t& value) const;

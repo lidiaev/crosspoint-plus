@@ -5,6 +5,7 @@
 #include <HalDisplay.h>
 
 #include <cstdio>
+#include <cstdlib>
 
 #include "MappedInputManager.h"
 #include "activities/util/KeyboardLayoutSet.h"
@@ -123,8 +124,18 @@ void TypingLabActivity::loop() {
     contactActive = false;
     return;
   }
-  if (contactActive) return;
+  // The touch controller reports one point: when the next finger lands before the
+  // previous one lifts, the point jumps to the new key. Treat a jump as a new press.
+  constexpr int ROLLOVER_JUMP_PX = 24;
+  if (contactActive) {
+    const bool jumped = abs(tx - contactX) > ROLLOVER_JUMP_PX || abs(ty - contactY) > ROLLOVER_JUMP_PX;
+    contactX = tx;
+    contactY = ty;
+    if (!jumped) return;
+  }
   contactActive = true;
+  contactX = tx;
+  contactY = ty;
 
   switch (controlAt(tx, ty)) {
     case Control::Back:
@@ -231,10 +242,10 @@ void TypingLabActivity::drawBars() const {
   char line[112];
   const int small = renderer.getLineHeight(SMALL_FONT_ID);
   const uint32_t avg = refreshCount ? latencySumMs / refreshCount : 0;
-  snprintf(line, sizeof(line), "key %lums  avg %lums  n %lu  panel %lums  cleanups %lu",
+  snprintf(line, sizeof(line), "key %lums  avg %lums  keys %lu  frames %lu  panel %lums  cl %lu",
            static_cast<unsigned long>(lastLatencyMs), static_cast<unsigned long>(avg),
-           static_cast<unsigned long>(refreshCount), static_cast<unsigned long>(lastPanelMs),
-           static_cast<unsigned long>(cleanupCount));
+           static_cast<unsigned long>(keyCount), static_cast<unsigned long>(refreshCount),
+           static_cast<unsigned long>(lastPanelMs), static_cast<unsigned long>(cleanupCount));
   renderer.drawText(SMALL_FONT_ID, MARGIN, bar + MARGIN / 2, line);
   snprintf(line, sizeof(line), "spi %lu  setup %lu  drf %lu  sync %lu",
            static_cast<unsigned long>(freeink::uc8279TimeStream), static_cast<unsigned long>(freeink::uc8279TimeSetup),
@@ -356,13 +367,11 @@ void TypingLabActivity::render(RenderLock&&) {
   const bool release = batch == 0 && releaseFrame.exchange(false) && pressedKey != INT16_MIN;
   const bool cleanup = cleanupFrame.exchange(false) && batch == 0;
   if (release || cleanup) pressedKey = INT16_MIN;
-  if (batch > 0) cursorOn = false;  // a moving cursor leaves residue under a short LUT
-  if (cleanup || whole) cursorOn = true;
   if (!whole && batch == 0 && !release && !cleanup) return;
 
   renderer.clearScreen();
   drawBars();
-  drawText(cursorOn);
+  drawText(true);
   drawKeyboard(pressedKey);
 
   const uint32_t drawDone = millis();
@@ -383,6 +392,7 @@ void TypingLabActivity::render(RenderLock&&) {
     lastPanelMs = panelDone - drawDone;
     latencySumMs += lastLatencyMs;
     ++refreshCount;
+    keyCount += batch;
   }
   if (cleanup || whole) {
     lastKeyFrameAt = 0;
@@ -392,6 +402,7 @@ void TypingLabActivity::render(RenderLock&&) {
   if (whole) {
     latencySumMs = 0;
     refreshCount = 0;
+    keyCount = 0;
     lastLatencyMs = lastPanelMs = 0;
   }
 }
