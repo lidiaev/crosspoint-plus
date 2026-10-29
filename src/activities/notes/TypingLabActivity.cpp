@@ -372,7 +372,18 @@ bool TypingLabActivity::applyKey(const int16_t value, const uint32_t downMs) {
       break;
     }
     default: {
+      // Letter ids are their code points: insert the letter the key showed when it was
+      // pressed, even if Shift or auto-capitalization has switched the layer since.
       const char* out = fui::keyboardOutputFor(currentLayout(), value);
+      char encoded[4] = {};
+      if (!out && value >= 0x20 && value < 0x80) {
+        encoded[0] = static_cast<char>(value);
+        out = encoded;
+      } else if (!out && value >= 0x80 && value < 0x800) {
+        encoded[0] = static_cast<char>(0xC0 | (value >> 6));
+        encoded[1] = static_cast<char>(0x80 | (value & 0x3F));
+        out = encoded;
+      }
       if (!out) return false;
       text += out;
       if (shifted && !capsLock && !symbols) {
@@ -635,8 +646,11 @@ void TypingLabActivity::render(RenderLock&&) {
   if (whole) {
     renderer.displayBuffer(HalDisplay::HALF_REFRESH);
   } else if (cleanup) {
+    // Full transfer on cleanup: resyncs the controller planes even if a window was ever missed.
     freeink::uc8279FastLutFrames = 0;
+    freeink::uc8279WindowedFast = false;
     renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+    freeink::uc8279WindowedFast = windowed.load();
     applyLut();
   } else {
     renderer.displayBuffer(HalDisplay::FAST_REFRESH);
