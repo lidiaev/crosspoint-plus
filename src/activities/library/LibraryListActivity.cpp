@@ -659,7 +659,7 @@ void LibraryListActivity::handleBackAction() {
     requestUpdate();
   } else if (groupsCollapsed) {
     restoreExpandedList();
-  } else if (!tabsFocused() && !degraded) {
+  } else if (!tabsFocused() && !degraded && !mappedInput.hasTouch()) {
     // Keep the current list and viewport while returning focus to the tabs.
     nav.selected = 0;
     requestUpdate();
@@ -959,7 +959,8 @@ void LibraryListActivity::buildScreen(UiScreen& screen) {
   screen.setContentMarginFromScreen(fui::Insets{static_cast<int16_t>(metrics.topPadding + metrics.headerHeight), 0,
                                                 static_cast<int16_t>(metrics.buttonHintsHeight + readoutReserved), 0});
 
-  if (!degraded) buildTabBar(screen);
+  // Touch boards show one list, Recent order (opened books first): no sort strip.
+  if (!degraded && !mappedInput.hasTouch()) buildTabBar(screen);
   if (bookRowCount() == 0) {
     const char* message = tr(STR_LIBRARY_NO_RESULTS);
     if (filterFailed) {
