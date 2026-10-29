@@ -1,8 +1,8 @@
 diff --git a/libs/display/FreeInkDisplay/src/driver/Uc8279X4Driver.cpp b/libs/display/FreeInkDisplay/src/driver/Uc8279X4Driver.cpp
-index a6e96e4..c2e43e4 100644
+index a6e96e4..8fc31cd 100644
 --- a/libs/display/FreeInkDisplay/src/driver/Uc8279X4Driver.cpp
 +++ b/libs/display/FreeInkDisplay/src/driver/Uc8279X4Driver.cpp
-@@ -20,6 +20,16 @@
+@@ -20,6 +20,18 @@
  #endif
  
  namespace freeink {
@@ -12,6 +12,8 @@ index a6e96e4..c2e43e4 100644
 +// set, an external single-phase B/W LUT of that many frames replaces the OTP DU.
 +volatile uint8_t uc8279FastPllOverride = 0;
 +volatile uint8_t uc8279FastLutFrames = 0;
++// Frames for the black-to-white table; 0 = same as uc8279FastLutFrames.
++volatile uint8_t uc8279FastLutWhiteFrames = 0;
 +// Last fast refresh timing (ms): new-plane upload, setup until DRF, DRF wait, old-plane sync.
 +volatile uint32_t uc8279TimeStream = 0, uc8279TimeSetup = 0, uc8279TimeDrf = 0, uc8279TimeSync = 0;
 +static uint32_t uc8279StampMs = 0;
@@ -19,7 +21,7 @@ index a6e96e4..c2e43e4 100644
  namespace {
  // UC8279 (800x480 X4 Pro variant) command set — UC81xx KW family, per the vendor
  // X4 Pro display hardware reference.
-@@ -429,7 +439,9 @@ bool Uc8279X4Driver::displayStart(EpdBus& bus, const uint8_t* fb, const uint8_t*
+@@ -429,7 +441,9 @@ bool Uc8279X4Driver::displayStart(EpdBus& bus, const uint8_t* fb, const uint8_t*
      bus.cmd(CMD_PARTIAL_OUT);
    }
  
@@ -29,7 +31,7 @@ index a6e96e4..c2e43e4 100644
    if (!fast) {
      if (scrub) {
        // Half scrub: OLD = ~target -> every pixel transitions, purging idle charge.
-@@ -448,13 +460,34 @@ bool Uc8279X4Driver::displayStart(EpdBus& bus, const uint8_t* fb, const uint8_t*
+@@ -448,13 +462,39 @@ bool Uc8279X4Driver::displayStart(EpdBus& bus, const uint8_t* fb, const uint8_t*
    // post-AA gray residue for this frame.
    _redriveAfterGray = false;
  
@@ -45,14 +47,19 @@ index a6e96e4..c2e43e4 100644
  
 +
 +namespace {
-+void writeFastBwLuts(EpdBus& bus, uint8_t frames) {
-+  const uint8_t f = static_cast<uint8_t>(frames & 0x3F);
++void writeFastBwLuts(EpdBus& bus, uint8_t frames, uint8_t whiteFrames) {
++  // Tables of one bank must finish together: the shorter rail is padded with an idle (VSS) phase.
++  const uint8_t black = static_cast<uint8_t>(frames & 0x3F);
++  const uint8_t white = static_cast<uint8_t>((whiteFrames ? whiteFrames : frames) & 0x3F);
++  const uint8_t total = black > white ? black : white;
 +  // Per table: group = {0x01, phase0..3 = (rail << 6) | frames, 0x01, 0x01}; rail 1 = to black, 2 = to white.
 +  const uint8_t rails[5] = {0, 0, 2, 1, 0};  // VCOM, WW, BW (to white), WB (to black), BB
 +  for (uint8_t t = 0; t < 5; t++) {
 +    uint8_t data[GRAY_LUT_LEN] = {};
 +    data[0] = 0x01;
-+    data[1] = static_cast<uint8_t>((rails[t] << 6) | f);
++    const uint8_t active = rails[t] == 2 ? white : rails[t] == 1 ? black : total;
++    data[1] = static_cast<uint8_t>((rails[t] << 6) | active);
++    data[2] = static_cast<uint8_t>(total - active);  // idle padding
 +    data[5] = 0x01;
 +    data[6] = 0x01;
 +    bus.cmd(static_cast<uint8_t>(0x20 + t));
@@ -64,12 +71,12 @@ index a6e96e4..c2e43e4 100644
  void Uc8279X4Driver::startBwRefresh(EpdBus& bus, bool fast) {
    // Built-in refresh setup, byte-for-byte the stock FW trigger order (RE of
    // Factory.bin FUN_4214d050 partial / FUN_4214cfe8 full): CDI first — stock
-@@ -474,8 +507,16 @@ void Uc8279X4Driver::startBwRefresh(EpdBus& bus, bool fast) {
+@@ -474,8 +514,16 @@ void Uc8279X4Driver::startBwRefresh(EpdBus& bus, bool fast) {
      bus.data(_cfg.gateScan);  // 0xE1 <- 0x02
    }
  
 +  const bool customLut = fast && uc8279FastLutFrames != 0;
-+  if (customLut) writeFastBwLuts(bus, uc8279FastLutFrames);
++  if (customLut) writeFastBwLuts(bus, uc8279FastLutFrames, uc8279FastLutWhiteFrames);
 +
    powerOnIfNeeded(bus, " 8279x4_PON");
  
@@ -81,7 +88,7 @@ index a6e96e4..c2e43e4 100644
    if (fast) {
      // Stock NEVER issues PTIN without a PTL (0x90) window — with PTL unset the
      // DU scans but develops nothing (first field unit: 443 ms DRF, no image).
-@@ -496,7 +537,7 @@ void Uc8279X4Driver::startBwRefresh(EpdBus& bus, bool fast) {
+@@ -496,7 +544,7 @@ void Uc8279X4Driver::startBwRefresh(EpdBus& bus, bool fast) {
      bus.data(0x01);
    }
    bus.cmd(CMD_PANEL_SETTING);
@@ -90,7 +97,7 @@ index a6e96e4..c2e43e4 100644
    bus.data(_cfg.psr1);
    bus.cmd(CMD_DISPLAY_REFRESH);
    // Confirm the waveform started (BUSY dropped) before returning, so
-@@ -513,11 +554,14 @@ void Uc8279X4Driver::displayFinish(EpdBus& bus, const uint8_t* fb) {
+@@ -513,11 +561,14 @@ void Uc8279X4Driver::displayFinish(EpdBus& bus, const uint8_t* fb) {
    _pendingRefresh = false;
  
    bus.waitRefreshComplete(" 8279x4_DRF");

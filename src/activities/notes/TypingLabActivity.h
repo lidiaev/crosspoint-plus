@@ -8,18 +8,12 @@
 
 #include "activities/Activity.h"
 
-// Measurement bench for touch typing latency (lab builds only, CPX_TYPING_LAB).
-// The keyboard is drawn once; each strategy differs only in how a key press
-// reaches the panel, and the top line shows the measured times.
+// Typing bench (lab builds only, CPX_TYPING_LAB). Keys commit on touch-down and
+// reach the panel with a short custom LUT; the cursor and key outline stay off
+// the black-to-white path while typing, and an idle factory-waveform repaint
+// clears short-LUT residue.
 class TypingLabActivity final : public Activity {
  public:
-  enum class Strategy : uint8_t {
-    Stock,   // highlight on touch-down, commit on release, whole frame redrawn
-    Full,    // commit on touch-down, text redrawn, whole-frame fast refresh
-    Window,  // commit on touch-down, text redrawn, windowed refresh of the text band
-    Count
-  };
-
   TypingLabActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
       : Activity("TypingLab", renderer, mappedInput) {}
 
@@ -31,26 +25,31 @@ class TypingLabActivity final : public Activity {
   bool skipLoopDelay() override { return true; }
 
  private:
+  enum class Control : uint8_t { None, Back, Lut, Blink, Clear };
+
   struct PendingKey {
     int16_t value;
     uint32_t downMs;
   };
   static constexpr uint8_t QUEUE_SIZE = 32;
+  static constexpr int16_t CLEAR_TEXT = INT16_MIN;
 
   // Main task (loop) produces, render task consumes.
   PendingKey queue[QUEUE_SIZE] = {};
   std::atomic<uint8_t> queueHead{0};
   std::atomic<uint8_t> queueTail{0};
-  std::atomic<int16_t> highlightValue{INT16_MIN};
   std::atomic<bool> fullRedraw{true};
-  std::atomic<uint8_t> strategy{static_cast<uint8_t>(Strategy::Full)};
-  uint32_t stockDownMs = 0;
-  int16_t stockDownValue = INT16_MIN;
-  bool contactActive = false;  // a contact was already handled; wait for lift-off
-  // Last typed key stays highlighted until the next key or an idle cleanup frame.
-  std::atomic<uint32_t> highlightShownAt{0};
-  std::atomic<bool> clearHighlight{false};
-  int16_t typedHighlight = INT16_MIN;
+  std::atomic<bool> releaseFrame{false};
+  std::atomic<bool> cleanupFrame{false};
+  std::atomic<bool> blinkFrame{false};
+  std::atomic<bool> blinkEnabled{false};
+  std::atomic<uint8_t> lutIndex{1};
+  std::atomic<uint32_t> lastKeyFrameAt{0};  // 0 = idle cleanup already done
+  std::atomic<uint32_t> cleanupDoneAt{0};
+  bool contactActive = false;
+  uint32_t nextBlinkAt = 0;
+  uint32_t blinkUntil = 0;
+  uint32_t blinkStartedFor = 0;
 
   // Render task state.
   std::string text;
@@ -58,30 +57,25 @@ class TypingLabActivity final : public Activity {
   bool showLangKey = false;
   bool shifted = false;
   bool symbols = false;
+  bool cursorOn = true;
+  int16_t outlinedKey = INT16_MIN;
   freeink::ui::InteractionBuffer<56> interactions;
   uint32_t lastLatencyMs = 0;
-  uint32_t lastDrawMs = 0;
   uint32_t lastPanelMs = 0;
   uint32_t latencySumMs = 0;
   uint32_t refreshCount = 0;
-  uint32_t keyCount = 0;
-  uint8_t lastBatch = 0;
-
-  enum class Control : uint8_t { None, Back, Mode, Clear, Lut, Pll };
-  std::atomic<uint8_t> pllIndex{0};
-  std::atomic<uint8_t> lutIndex{3};  // 8 frames
   uint32_t cleanupCount = 0;
 
   void enqueue(int16_t value, uint32_t downMs);
-  Control controlAt(int x, int y) const;
-  int controlBarHeight() const;
   bool keyAt(int x, int y, int16_t& value) const;
-  // Applies one key to the text and layout; returns true when the keyboard must be redrawn.
+  Control controlAt(int x, int y) const;
+  int barHeight() const;
+  // Applies one key; returns true when the keyboard layout changed.
   bool applyKey(int16_t value);
   const freeink::ui::KeyboardLayout& currentLayout() const;
   freeink::ui::Rect keyboardRect() const;
-  int textBandBottom() const;
-  void drawStats() const;
-  void drawText() const;
-  void drawKeyboard(int16_t highlight);
+  void applyLut() const;
+  void drawBars() const;
+  void drawText(bool cursor) const;
+  void drawKeyboard(int16_t outline);
 };
