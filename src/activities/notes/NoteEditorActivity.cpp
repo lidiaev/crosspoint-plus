@@ -9,10 +9,13 @@
 #include <cstdlib>
 #include <cstring>
 
+#include "CrossPointSettings.h"
 #include "MappedInputManager.h"
 #include "NoteMarkdown.h"
 #include "NotesListActivity.h"
 #include "NotesStore.h"
+#include "ReaderFontSizes.h"
+#include "SdCardFontSystem.h"
 #include "activities/ActivityManager.h"
 #include "activities/RenderLock.h"
 #include "components/UITheme.h"
@@ -24,9 +27,6 @@ namespace fui = freeink::ui;
 
 namespace {
 constexpr int MARGIN = 14;
-constexpr int TEXT_FONT = NOTOSANS_12_FONT_ID;  // has italic, unlike the UI font
-// Font per slot: body and heading 3-6, heading 2, heading 1.
-constexpr int FONTS[] = {NOTOSANS_12_FONT_ID, NOTOSANS_14_FONT_ID, NOTOSANS_16_FONT_ID};
 constexpr int BOX_GAP = 10;  // after a checkbox
 constexpr int QUOTE_WIDTH = 14;
 constexpr int CODE_PAD = 6;                 // a backtick's width: room for the frame around code
@@ -58,6 +58,11 @@ void NoteEditorActivity::onEnter() {
     LOG_ERR("NOTES", "Cannot open %s", path.c_str());
   }
   cursor = text.size();
+  {
+    // Loading SD font sizes registers them with the renderer.
+    RenderLock lock;
+    loadFonts();
+  }
   // A new note opens ready to type; an existing one opens for reading.
   keyboardShown = path.empty();
   lineStarts.reserve(64);
@@ -110,7 +115,7 @@ int NoteEditorActivity::textBottom() const {
 
 int NoteEditorActivity::lineHeight(const int line) const {
   const uint8_t font = line >= 0 && line < static_cast<int>(lineFonts.size()) ? lineFonts[line] : 0;
-  return renderer.getLineHeight(FONTS[font]);
+  return renderer.getLineHeight(fonts[font]);
 }
 
 int NoteEditorActivity::lineAtY(const int y) const {
@@ -253,7 +258,7 @@ void NoteEditorActivity::trackDrag(const uint32_t now, bool& update) {
   }
   if (!dragMoved && std::abs(y - dragStartY) < DRAG_SLOP && std::abs(x - dragStartX) < DRAG_SLOP) return;
   dragMoved = true;
-  const int lineHeight = renderer.getLineHeight(TEXT_FONT);
+  const int lineHeight = renderer.getLineHeight(fonts[0]);
   const int lines = (dragAppliedY - y) / lineHeight;  // finger up = text up = later lines
   if (lines == 0) return;
   dragAppliedY = static_cast<int16_t>(dragAppliedY - lines * lineHeight);
@@ -285,12 +290,47 @@ int NoteEditorActivity::advance(const uint32_t cp, const uint8_t style, const ui
     buf[2] = static_cast<char>(0x80 | (cp & 0x3F));
   }
   const int w = std::max(
-      1, renderer.getTextAdvanceX(FONTS[font], buf, static_cast<EpdFontFamily::Style>(style & note_md::STYLE_MASK)));
+      1, renderer.getTextAdvanceX(fonts[font], buf, static_cast<EpdFontFamily::Style>(style & note_md::STYLE_MASK)));
   if (cp < CACHED_CPS) cache[cp] = static_cast<uint8_t>(std::min(w, 255));
   return w;
 }
 
-int NoteEditorActivity::boxSize() const { return renderer.getLineHeight(TEXT_FONT) * 11 / 20; }
+// Notes use the reading font: the body at the reader's size, headings one and
+// two installed sizes larger (bold at the body size when there are none).
+void NoteEditorActivity::loadFonts() {
+  sdFontSystem.ensureLoaded(renderer);
+  const int body = SETTINGS.getReaderFontId();
+  const bool sdFont = SETTINGS.sdFontFamilyName[0] != '\0' &&
+                      body == sdFontSystem.resolveFontId(SETTINGS.sdFontFamilyName, SETTINGS.fontPointSize);
+  const std::vector<uint8_t> sizes = readerFontPointSizes(&sdFontSystem.registry(), SETTINGS.sdFontFamilyName);
+  const uint8_t bodyPt = snapToNearestPointSize(sizes, SETTINGS.fontPointSize);
+  const auto fontAt = [&](const uint8_t pt) {
+    if (sdFont) return sdFontSystem.loadActiveFamilySize(renderer, pt);
+    switch (pt) {
+      case 12:
+        return NOTOSERIF_12_FONT_ID;
+      case 14:
+        return NOTOSERIF_14_FONT_ID;
+      case 16:
+        return NOTOSERIF_16_FONT_ID;
+      case 18:
+        return NOTOSERIF_18_FONT_ID;
+      default:
+        return 0;
+    }
+  };
+  fonts[0] = body;
+  int slot = 1;
+  for (const uint8_t pt : sizes) {
+    if (slot >= FONT_SLOTS) break;
+    if (pt <= bodyPt) continue;
+    const int id = fontAt(pt);
+    if (id != 0) fonts[slot++] = id;
+  }
+  for (; slot < FONT_SLOTS; ++slot) fonts[slot] = fonts[slot - 1];
+}
+
+int NoteEditorActivity::boxSize() const { return renderer.getLineHeight(fonts[0]) * 11 / 20; }
 
 // Width of the code point at offset i as displayed: markup is zero-width, list
 // markers take their glyph's width.
@@ -583,7 +623,7 @@ void NoteEditorActivity::drawHeader() const {
 void NoteEditorActivity::drawGlyph(const uint8_t attr, const int x, const int y, const int lineHeight) {
   switch (note_md::glyphOf(attr)) {
     case note_md::Glyph::Bullet:
-      renderer.drawText(TEXT_FONT, x, y, "•");
+      renderer.drawText(fonts[0], x, y, "•");
       break;
     case note_md::Glyph::Box:
     case note_md::Glyph::BoxChecked: {
@@ -622,7 +662,7 @@ void NoteEditorActivity::drawText() {
     const size_t start = lineStarts[l];
     const size_t end = l + 1 < lines ? lineStarts[l + 1] : text.size();
     const uint8_t font = lineFonts[l];
-    const int lineHeight = renderer.getLineHeight(FONTS[font]);
+    const int lineHeight = renderer.getLineHeight(fonts[font]);
     int x = MARGIN;
     int runX = x;
     uint8_t runAttr = 0;
@@ -636,12 +676,12 @@ void NoteEditorActivity::drawText() {
     // The run measured as drawn (with kerning), so the caret sits on the glyph boundary.
     const auto caretX = [&]() {
       if (run.empty()) return x;
-      return runX + renderer.getTextAdvanceX(FONTS[font], run.c_str(),
+      return runX + renderer.getTextAdvanceX(fonts[font], run.c_str(),
                                              static_cast<EpdFontFamily::Style>(runAttr & note_md::STYLE_MASK));
     };
     const auto flush = [&]() {
       if (run.empty()) return;
-      renderer.drawText(FONTS[font], runX, y, run.c_str(), true,
+      renderer.drawText(fonts[font], runX, y, run.c_str(), true,
                         static_cast<EpdFontFamily::Style>(runAttr & note_md::STYLE_MASK));
       if (runAttr & note_md::STRIKE) renderer.fillRect(runX, y + lineHeight * 11 / 20, x - runX, 2);
       run.clear();

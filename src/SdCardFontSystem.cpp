@@ -232,6 +232,14 @@ void SdCardFontSystem::setupUiFallbacks(GfxRenderer& renderer) {
   }
 }
 
+int SdCardFontSystem::loadActiveFamilySize(GfxRenderer& renderer, const uint8_t pointSize) {
+  const std::string& familyName = manager_.currentFamilyName();
+  if (familyName.empty()) return 0;
+  const auto* family = registry_.findFamily(familyName);
+  if (!family) return 0;
+  return manager_.loadFamilyExtraSize(*family, renderer, pointSize);
+}
+
 int SdCardFontSystem::resolveFontId(const char* familyName, uint8_t /*pointSize*/) const {
 #if CROSSPOINT_VECTOR_FONTS
   // A loaded vector (.ttf) family answers first — it isn't in the .cpfont manager.

@@ -76,6 +76,7 @@ class NoteEditorActivity final : public Activity {
   int topLine = 0;
   static constexpr uint32_t CACHED_CPS = 0x460;
   static constexpr int FONT_SLOTS = 3;  // body, heading 2, heading 1
+  int fonts[FONT_SLOTS] = {};           // the reading font at the body size and two larger ones
   // Advance per font slot, style and code point, 0 = unknown.
   uint8_t widthCache[FONT_SLOTS][4][CACHED_CPS] = {};
 
@@ -99,6 +100,7 @@ class NoteEditorActivity final : public Activity {
   int advance(uint32_t cp, uint8_t style, uint8_t font);
   int widthAt(size_t i, uint32_t cp, uint8_t font);
   int boxSize() const;
+  void loadFonts();
   void restyle();
   bool toggleCheckboxAt(int x, int y);
   void insertNewline();
