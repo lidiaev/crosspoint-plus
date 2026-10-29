@@ -23,7 +23,6 @@
 #include "OpdsServerStore.h"
 #include "RecentBooksStore.h"
 #include "activities/notes/NotesListActivity.h"
-#include "activities/notes/TypingLabActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 
@@ -552,10 +551,6 @@ void HomeActivity::render(RenderLock&&) {
 void HomeActivity::onSelectBook(const std::string& path) { activityManager.goToReader(path); }
 
 void HomeActivity::onNotesOpen() {
-#ifdef CPX_TYPING_LAB
-  activityManager.replaceActivity(std::make_unique<TypingLabActivity>(renderer, mappedInput));
-  return;
-#endif
   activityManager.replaceActivity(std::make_unique<NotesListActivity>(renderer, mappedInput));
 }
 
