@@ -17,6 +17,7 @@ namespace fui = freeink::ui;
 namespace freeink {
 extern volatile uint8_t uc8279FastPllOverride;
 extern volatile uint8_t uc8279FastLutFrames;
+extern volatile uint32_t uc8279TimeStream, uc8279TimeSetup, uc8279TimeDrf, uc8279TimeSync;
 }  // namespace freeink
 
 namespace {
@@ -47,6 +48,7 @@ void TypingLabActivity::onEnter() {
   Activity::onEnter();
   text.reserve(4096);
   layoutId = keyboard_layouts::startingLayout();
+  freeink::uc8279FastLutFrames = LUT_FRAMES[lutIndex.load()];
   const uint16_t enabledLayouts = keyboard_layouts::enabled();
   showLangKey = (enabledLayouts & (enabledLayouts - 1)) != 0;
   fullRedraw = true;
@@ -103,7 +105,7 @@ void TypingLabActivity::loop() {
   }
 
   const uint32_t shownAt = highlightShownAt.load();
-  if (shownAt != 0 && millis() - shownAt > 800 && queueTail.load() == queueHead.load() && !clearHighlight.load()) {
+  if (shownAt != 0 && millis() - shownAt > 1500 && queueTail.load() == queueHead.load() && !clearHighlight.load()) {
     clearHighlight = true;
     requestUpdate();
   }
@@ -277,11 +279,16 @@ void TypingLabActivity::drawStats() const {
            static_cast<unsigned long>(lastDrawMs), static_cast<unsigned long>(lastPanelMs), lastBatch,
            static_cast<unsigned long>(keyCount), pll ? pll : 0x0E);
   renderer.drawText(SMALL_FONT_ID, MARGIN, 2 * barHeight + MARGIN / 2 + smallHeight, line);
+  snprintf(line, sizeof(line), "spi %lu  setup %lu  drf %lu  sync %lu  cleanups %lu",
+           static_cast<unsigned long>(freeink::uc8279TimeStream), static_cast<unsigned long>(freeink::uc8279TimeSetup),
+           static_cast<unsigned long>(freeink::uc8279TimeDrf), static_cast<unsigned long>(freeink::uc8279TimeSync),
+           static_cast<unsigned long>(cleanupCount));
+  renderer.drawText(SMALL_FONT_ID, MARGIN, 2 * barHeight + MARGIN / 2 + 2 * smallHeight, line);
 }
 
 void TypingLabActivity::drawText() const {
   const int lineHeight = renderer.getLineHeight(UI_12_FONT_ID);
-  const int top = 2 * controlBarHeight() + MARGIN / 2 + 2 * renderer.getLineHeight(SMALL_FONT_ID) + MARGIN;
+  const int top = 2 * controlBarHeight() + MARGIN / 2 + 3 * renderer.getLineHeight(SMALL_FONT_ID) + MARGIN;
   const int bottom = textBandBottom();
   const int maxWidth = renderer.getScreenWidth() - 2 * MARGIN;
   const int maxLines = (bottom - top) / lineHeight;
@@ -391,7 +398,9 @@ void TypingLabActivity::render(RenderLock&&) {
   queueTail.store(tail, std::memory_order_release);
 
   const auto current = static_cast<Strategy>(strategy.load());
-  if (batch == 0 && clearHighlight.exchange(false)) typedHighlight = INT16_MIN;
+  // Idle cleanup: drop the highlight and repaint once with the factory waveform to clear short-LUT residue.
+  const bool cleanup = batch == 0 && clearHighlight.exchange(false);
+  if (cleanup) typedHighlight = INT16_MIN;
   // Stock shows the key while held; the others show the last typed key in the same frame as its character.
   const int16_t highlight = current == Strategy::Stock ? highlightValue.load() : typedHighlight;
   const bool whole = fullRedraw.exchange(false);
@@ -402,7 +411,19 @@ void TypingLabActivity::render(RenderLock&&) {
     renderer.clearScreen();
     drawStats();
     drawText();
-    drawKeyboard(highlight);
+    drawKeyboard(current == Strategy::Stock ? highlight : INT16_MIN);
+    if (current != Strategy::Stock && highlight != INT16_MIN) {
+      // Outline the typed key: a thin frame clears cleanly with a short waveform, a solid fill does not.
+      const size_t count = interactions.publishedCount();
+      const fui::Interaction* items = interactions.publishedData();
+      for (size_t i = 0; i < count; ++i) {
+        if (items[i].action == ACTION_KEY && items[i].value == highlight) {
+          const fui::Rect& r = items[i].rect;
+          renderer.drawRect(r.x + 2, r.y + 2, r.width - 4, r.height - 4, 3, true);
+          break;
+        }
+      }
+    }
   } else {
     renderer.fillRect(0, 0, pageWidth, band, false);
     drawStats();
@@ -412,6 +433,12 @@ void TypingLabActivity::render(RenderLock&&) {
   const uint32_t drawDone = millis();
   if (whole) {
     renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+  } else if (cleanup) {
+    const uint8_t frames = freeink::uc8279FastLutFrames;
+    freeink::uc8279FastLutFrames = 0;
+    renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+    freeink::uc8279FastLutFrames = frames;
+    ++cleanupCount;
   } else if (current == Strategy::Window && !keyboardChanged) {
     renderer.displayWindow(0, 0, pageWidth, band);
   } else {

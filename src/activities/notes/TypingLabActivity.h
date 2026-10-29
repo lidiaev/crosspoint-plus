@@ -69,7 +69,8 @@ class TypingLabActivity final : public Activity {
 
   enum class Control : uint8_t { None, Back, Mode, Clear, Lut, Pll };
   std::atomic<uint8_t> pllIndex{0};
-  std::atomic<uint8_t> lutIndex{0};
+  std::atomic<uint8_t> lutIndex{3};  // 8 frames
+  uint32_t cleanupCount = 0;
 
   void enqueue(int16_t value, uint32_t downMs);
   Control controlAt(int x, int y) const;
