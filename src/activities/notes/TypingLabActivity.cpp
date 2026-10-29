@@ -84,10 +84,11 @@ int TypingLabActivity::controlBarHeight() const { return renderer.getLineHeight(
 
 // Three equal tap zones across the top bar: back, strategy, clear.
 TypingLabActivity::Control TypingLabActivity::controlAt(const int x, const int y) const {
-  const int statsTop = controlBarHeight();
-  const int line = renderer.getLineHeight(SMALL_FONT_ID);
-  if (y >= statsTop && y < statsTop + MARGIN / 2 + line) return Control::Lut;
-  if (y >= statsTop + MARGIN / 2 + line && y < statsTop + MARGIN + 2 * line) return Control::Pll;
+  // Second bar: left half cycles the LUT, right half the PLL.
+  const int barHeight = controlBarHeight();
+  if (y >= barHeight && y < 2 * barHeight) {
+    return x < renderer.getScreenWidth() / 2 ? Control::Lut : Control::Pll;
+  }
   if (y < 0 || y >= controlBarHeight()) return Control::None;
   const int third = renderer.getScreenWidth() / 3;
   if (x < third) return Control::Back;
@@ -244,6 +245,21 @@ void TypingLabActivity::drawStats() const {
   renderer.drawLine(2 * third, MARGIN / 2, 2 * third, barHeight - MARGIN / 2);
   renderer.drawLine(0, barHeight - 1, pageWidth - 1, barHeight - 1);
 
+  const uint8_t lutFrames = LUT_FRAMES[lutIndex.load()];
+  const uint8_t pllValue = PLL_VALUES[pllIndex.load()];
+  char label[32];
+  if (lutFrames) {
+    snprintf(label, sizeof(label), "LUT %uf", lutFrames);
+  } else {
+    snprintf(label, sizeof(label), "LUT otp");
+  }
+  renderer.drawText(UI_12_FONT_ID, MARGIN, barHeight + MARGIN, label);
+  snprintf(label, sizeof(label), "PLL %02X", pllValue ? pllValue : 0x0E);
+  const int pllWidth = renderer.getTextWidth(UI_12_FONT_ID, label);
+  renderer.drawText(UI_12_FONT_ID, pageWidth - MARGIN - pllWidth, barHeight + MARGIN, label);
+  renderer.drawLine(pageWidth / 2, barHeight + MARGIN / 2, pageWidth / 2, 2 * barHeight - MARGIN / 2);
+  renderer.drawLine(0, 2 * barHeight - 1, pageWidth - 1, 2 * barHeight - 1);
+
   const int smallHeight = renderer.getLineHeight(SMALL_FONT_ID);
   const uint32_t avg = refreshCount ? latencySumMs / refreshCount : 0;
   const uint8_t pll = PLL_VALUES[pllIndex.load()];
@@ -256,16 +272,16 @@ void TypingLabActivity::drawStats() const {
   }
   snprintf(line, sizeof(line), "key %lums  avg %lums  n %lu  lut %s", static_cast<unsigned long>(lastLatencyMs),
            static_cast<unsigned long>(avg), static_cast<unsigned long>(refreshCount), lutName);
-  renderer.drawText(SMALL_FONT_ID, MARGIN, barHeight + MARGIN / 2, line);
+  renderer.drawText(SMALL_FONT_ID, MARGIN, 2 * barHeight + MARGIN / 2, line);
   snprintf(line, sizeof(line), "draw %lums  panel %lums  batch %u  keys %lu  pll %02X",
            static_cast<unsigned long>(lastDrawMs), static_cast<unsigned long>(lastPanelMs), lastBatch,
            static_cast<unsigned long>(keyCount), pll ? pll : 0x0E);
-  renderer.drawText(SMALL_FONT_ID, MARGIN, barHeight + MARGIN / 2 + smallHeight, line);
+  renderer.drawText(SMALL_FONT_ID, MARGIN, 2 * barHeight + MARGIN / 2 + smallHeight, line);
 }
 
 void TypingLabActivity::drawText() const {
   const int lineHeight = renderer.getLineHeight(UI_12_FONT_ID);
-  const int top = controlBarHeight() + MARGIN / 2 + 2 * renderer.getLineHeight(SMALL_FONT_ID) + MARGIN;
+  const int top = 2 * controlBarHeight() + MARGIN / 2 + 2 * renderer.getLineHeight(SMALL_FONT_ID) + MARGIN;
   const int bottom = textBandBottom();
   const int maxWidth = renderer.getScreenWidth() - 2 * MARGIN;
   const int maxLines = (bottom - top) / lineHeight;
