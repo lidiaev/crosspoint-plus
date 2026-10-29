@@ -7,6 +7,7 @@
 
 #include "NoteMarkdown.h"
 #include "activities/Activity.h"
+#include "components/typing/TextSelection.h"
 #include "components/typing/TouchTracker.h"
 #include "components/typing/TypingKeyboard.h"
 #include "fontIds.h"
@@ -27,9 +28,24 @@ class NoteEditorActivity final : public Activity {
   bool skipLoopDelay() override;
 
  private:
-  enum class EventType : uint8_t { Key, Alternate, TapText, ToggleKeyboard, ScrollUp, ScrollDown, ScrollBy, Format };
-  // Toolbar buttons above the keyboard; each toggles the current paragraph's marker.
-  enum Format : int16_t { FORMAT_CHECKBOX, FORMAT_LIST, FORMAT_HEADING, FORMAT_COUNT };
+  enum class EventType : uint8_t {
+    Key,
+    Alternate,
+    TapText,
+    DoubleTap,
+    LongPress,
+    SelectTo,
+    ToggleKeyboard,
+    ScrollUp,
+    ScrollDown,
+    ScrollBy,
+    Toolbar
+  };
+  // Buttons above the keyboard: paragraph markers while typing, edit actions over a selection.
+  enum class Tool : uint8_t { Checkbox, List, Heading, Copy, Cut, Paste, SelectAll };
+  static constexpr int MAX_TOOLS = 4;
+  // What a finger on the text does: scroll, or move one end of the selection.
+  enum class Drag : uint8_t { Scroll, Select, StartHandle, EndHandle };
   struct Event {
     EventType type;
     int16_t value;
@@ -64,11 +80,27 @@ class NoteEditorActivity final : public Activity {
   int16_t dragStartY = 0;
   int16_t dragAppliedY = 0;  // finger y the scroll position already follows
   bool dragMoved = false;
+  Drag dragMode = Drag::Scroll;
+  int16_t grabDy = 0;  // from the finger to the line its handle follows
+  int16_t sentX = 0;   // last position sent as SelectTo
+  int16_t sentY = 0;
+  uint32_t lastTapAt = 0;  // for double taps
+  int16_t lastTapX = 0;
+  int16_t lastTapY = 0;
+  // Where the render task drew the selection handles (a point on each boundary's line), for grabbing them.
+  std::atomic<bool> selectionShown{false};
+  std::atomic<int16_t> startHandleX{0};
+  std::atomic<int16_t> startHandleY{0};
+  std::atomic<int16_t> endHandleX{0};
+  std::atomic<int16_t> endHandleY{0};
 
   // Render task state.
   std::string path;
   std::string text;
-  size_t cursor = 0;  // byte offset, always on a code point boundary
+  size_t cursor = 0;             // byte offset, always on a code point boundary
+  text_select::Range selection;  // empty = none; the cursor sits at its end
+  text_select::Range anchor;     // the word a held finger selected first
+  bool pasteMenu = false;        // the toolbar offers Paste without a selection
   bool dirty = false;
   TypingKeyboard keyboard;
   int16_t pressedKey = INT16_MIN;
@@ -93,13 +125,23 @@ class NoteEditorActivity final : public Activity {
   void applyAlternate(int16_t value);
   void trackDrag(uint32_t now, bool& update);
   void placeCursor(int x, int y);
+  size_t offsetAt(int x, int y);
+  bool hasSelection() const { return !selection.empty(); }
+  void clearSelection();
+  void eraseSelection();
+  void selectWord(int x, int y);
+  void selectTo(Drag handle, int x, int y);
+  void paste();
+  int tools(Tool out[MAX_TOOLS]) const;
+  void applyTool(Tool tool);
 
   int headerHeight() const;
   int textTop() const;
   int textBottom() const;
   int toolbarTop() const;
-  void applyFormat(int16_t format);
+  void applyFormat(Tool format);
   void drawToolbar() const;
+  void drawHandle(int x, int y, int rowHeight, bool start) const;
   int lineHeight(int line) const;
   int lineAtY(int y) const;  // wrapped line under screen y (may be past the last line)
   int maxTopLine() const;    // the top line that brings the last line to the bottom

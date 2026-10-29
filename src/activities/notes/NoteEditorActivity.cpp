@@ -2,6 +2,7 @@
 
 #include <GfxRenderer.h>
 #include <HalDisplay.h>
+#include <I18n.h>
 #include <Logging.h>
 #include <Memory.h>
 
@@ -36,6 +37,12 @@ constexpr int TOOLBAR_HEIGHT = 52;            // format buttons above the keyboa
 constexpr uint32_t TYPING_ACTIVE_MS = 2000;   // full-speed loop after the last touch
 constexpr uint32_t ALTERNATE_DELAY_MS = 450;  // long press on е types ё
 constexpr int DRAG_SLOP = 16;                 // px a finger moves before a tap becomes a drag
+constexpr uint32_t LONG_PRESS_MS = 500;       // a held finger selects the word under it
+constexpr uint32_t DOUBLE_TAP_MS = 400;
+constexpr int DOUBLE_TAP_SLOP = 30;
+constexpr int HANDLE_REACH = 32;  // px around a selection handle that grab it
+constexpr int HANDLE_KNOB = 10;
+constexpr int16_t OFF_SCREEN = -1000;
 
 size_t decode(const std::string& s, size_t i, uint32_t& cp) {
   const uint8_t c = static_cast<uint8_t>(s[i]);
@@ -192,8 +199,7 @@ void NoteEditorActivity::loop() {
     }
     // The toolbar is checked before the keyboard, whose keys reach a little past their edges.
     if (keyboardShown.load() && p.y >= toolbarTop() && p.y < keyboard.rect(renderer).y) {
-      const int format = std::clamp(p.x * FORMAT_COUNT / width, 0, FORMAT_COUNT - 1);
-      enqueue(Event{EventType::Format, static_cast<int16_t>(format), p.x, p.y, p.downMs});
+      enqueue(Event{EventType::Toolbar, 0, p.x, p.y, p.downMs});
       update = true;
       continue;
     }
@@ -213,6 +219,22 @@ void NoteEditorActivity::loop() {
       dragStartX = p.x;
       dragStartY = dragAppliedY = p.y;
       dragMoved = false;
+      sentX = p.x;
+      sentY = p.y;
+      dragMode = Drag::Scroll;
+      // A finger near a selection handle moves that end; the end handle wins when they meet.
+      if (selectionShown.load()) {
+        const auto near = [&p](const int hx, const int hy) {
+          return std::abs(p.x - hx) < HANDLE_REACH && std::abs(p.y - hy) < HANDLE_REACH * 3 / 2;
+        };
+        if (near(endHandleX.load(), endHandleY.load())) {
+          dragMode = Drag::EndHandle;
+          grabDy = static_cast<int16_t>(endHandleY.load() - p.y);
+        } else if (near(startHandleX.load(), startHandleY.load())) {
+          dragMode = Drag::StartHandle;
+          grabDy = static_cast<int16_t>(startHandleY.load() - p.y);
+        }
+      }
     }
   }
   trackDrag(now, update);
@@ -247,20 +269,47 @@ void NoteEditorActivity::loop() {
   if (update) requestUpdate();
 }
 
-// A finger on the text drags it line by line; lifting it without a drag is a tap.
+// A finger on the text drags it line by line; lifting it without a drag is a tap,
+// two quick taps select a word, and holding it selects a word and then extends
+// the selection as it moves. A finger on a selection handle moves that end.
 void NoteEditorActivity::trackDrag(const uint32_t now, bool& update) {
   if (dragSlot < 0) return;
   int16_t x = 0;
   int16_t y = 0;
   if (!touch.position(static_cast<uint8_t>(dragSlot), dragDownMs, x, y)) {
-    if (!dragMoved) {
-      enqueue(Event{EventType::TapText, 0, dragStartX, dragStartY, now});
+    if (!dragMoved && dragMode == Drag::Scroll) {
+      const bool second = now - lastTapAt < DOUBLE_TAP_MS && std::abs(dragStartX - lastTapX) < DOUBLE_TAP_SLOP &&
+                          std::abs(dragStartY - lastTapY) < DOUBLE_TAP_SLOP;
+      enqueue(Event{second ? EventType::DoubleTap : EventType::TapText, 0, dragStartX, dragStartY, now});
+      lastTapAt = second ? 0 : now;
+      lastTapX = dragStartX;
+      lastTapY = dragStartY;
       update = true;
     }
     dragSlot = -1;
+    dragMode = Drag::Scroll;
     return;
   }
-  if (!dragMoved && std::abs(y - dragStartY) < DRAG_SLOP && std::abs(x - dragStartX) < DRAG_SLOP) return;
+  if (dragMode != Drag::Scroll) {
+    if (std::abs(x - sentX) < 4 && std::abs(y - sentY) < 4) return;
+    sentX = x;
+    sentY = y;
+    enqueue(Event{EventType::SelectTo, static_cast<int16_t>(dragMode), x, static_cast<int16_t>(y + grabDy), now});
+    update = true;
+    return;
+  }
+  if (!dragMoved && std::abs(y - dragStartY) < DRAG_SLOP && std::abs(x - dragStartX) < DRAG_SLOP) {
+    if (now - dragDownMs >= LONG_PRESS_MS) {
+      enqueue(Event{EventType::LongPress, 0, dragStartX, dragStartY, now});
+      dragMode = Drag::Select;
+      grabDy = 0;
+      sentX = x;
+      sentY = y;
+      lastTapAt = 0;
+      update = true;
+    }
+    return;
+  }
   dragMoved = true;
   const int step = renderer.getLineHeight(fonts[0]);
   const int lines = (dragAppliedY - y) / step;  // finger up = text up = later lines
@@ -327,7 +376,8 @@ int NoteEditorActivity::widthAt(const size_t i, const uint32_t cp, const uint8_t
 // The paragraph with the cursor shows its markup while the keyboard is up.
 void NoteEditorActivity::restyle() {
   size_t raw = std::string::npos;
-  if (keyboardShown.load()) {
+  // A selection shows every paragraph formatted, so the text stays put while handles move.
+  if (keyboardShown.load() && !hasSelection()) {
     const size_t nl = cursor == 0 ? std::string::npos : text.rfind('\n', cursor - 1);
     raw = nl == std::string::npos ? 0 : nl + 1;
   }
@@ -430,6 +480,15 @@ void NoteEditorActivity::applyAlternate(const int16_t) {
 void NoteEditorActivity::applyKey(const int16_t value, const uint32_t downMs, bool& layoutChanged) {
   char out[4] = {};
   const TypingKeyboard::Action action = keyboard.press(value, downMs, out);
+  if (action != TypingKeyboard::Action::LayoutChanged && action != TypingKeyboard::Action::None) pasteMenu = false;
+  // Typing replaces the selection; Backspace only removes it.
+  if (hasSelection() && action != TypingKeyboard::Action::LayoutChanged && action != TypingKeyboard::Action::None) {
+    eraseSelection();
+    if (action == TypingKeyboard::Action::Backspace) {
+      if (autoCapitalize()) layoutChanged = true;
+      return;
+    }
+  }
   switch (action) {
     case TypingKeyboard::Action::Insert:
       // Double space after a word ends the sentence.
@@ -461,7 +520,7 @@ void NoteEditorActivity::applyKey(const int16_t value, const uint32_t downMs, bo
 // The marker that opens the paragraph with the cursor: a checkbox, a bullet or a
 // heading. Each toolbar button toggles its own kind and replaces the others,
 // like the format buttons in Apple Notes.
-void NoteEditorActivity::applyFormat(const int16_t format) {
+void NoteEditorActivity::applyFormat(const Tool format) {
   const size_t nl = cursor == 0 ? std::string::npos : text.rfind('\n', cursor - 1);
   const size_t start = nl == std::string::npos ? 0 : nl + 1;
   size_t end = text.find('\n', start);
@@ -488,13 +547,13 @@ void NoteEditorActivity::applyFormat(const int16_t format) {
 
   const char* marker = "";
   switch (format) {
-    case FORMAT_CHECKBOX:
+    case Tool::Checkbox:
       marker = box ? "" : "- [ ] ";
       break;
-    case FORMAT_LIST:
+    case Tool::List:
       marker = bullet && !box ? "" : "- ";
       break;
-    case FORMAT_HEADING:
+    case Tool::Heading:
       marker = level == 0 ? "# " : level == 1 ? "## " : "";
       break;
     default:
@@ -566,6 +625,12 @@ bool NoteEditorActivity::toggleCheckboxAt(const int x, const int y) {
 }
 
 void NoteEditorActivity::placeCursor(const int x, const int y) {
+  cursor = offsetAt(x, y);
+  autoCapitalize();
+}
+
+// The character boundary nearest to a point on the text.
+size_t NoteEditorActivity::offsetAt(const int x, const int y) {
   // Earlier events in this batch may have changed the text: lay it out again.
   if (styleStale) {
     restyle();
@@ -586,8 +651,101 @@ void NoteEditorActivity::placeCursor(const int x, const int y) {
   }
   // A wrapped line ends in the space it broke after: keep the cursor before it.
   if (i == end && end < text.size() && i > lineStarts[line] && text[i - 1] == ' ') --i;
-  cursor = i;
-  autoCapitalize();
+  return i;
+}
+
+void NoteEditorActivity::clearSelection() {
+  if (!hasSelection()) return;
+  selection = {};
+  styleStale = true;
+}
+
+void NoteEditorActivity::eraseSelection() {
+  if (!hasSelection()) return;
+  text.erase(selection.start, selection.end - selection.start);
+  cursor = selection.start;
+  selection = {};
+  dirty = true;
+  styleStale = true;
+}
+
+void NoteEditorActivity::selectWord(const int x, const int y) {
+  selection = anchor = text_select::wordAt(text, offsetAt(x, y));
+  if (hasSelection()) cursor = selection.end;
+  pasteMenu = false;
+  styleStale = true;
+}
+
+void NoteEditorActivity::selectTo(const Drag handle, const int x, const int y) {
+  const size_t at = offsetAt(x, y);
+  switch (handle) {
+    case Drag::Select:
+      selection = text_select::extend(anchor, at);
+      break;
+    case Drag::StartHandle:
+      selection.start = std::min(at, text_select::prevBoundary(text, selection.end));
+      break;
+    case Drag::EndHandle:
+      selection.end = std::max(at, text_select::nextBoundary(text, selection.start));
+      break;
+    case Drag::Scroll:
+      return;
+  }
+  if (hasSelection()) cursor = selection.end;
+  styleStale = true;
+}
+
+void NoteEditorActivity::paste() {
+  eraseSelection();
+  insertText(clipboard::get().c_str());
+  pasteMenu = false;
+}
+
+// The toolbar's buttons for the current state, left to right.
+int NoteEditorActivity::tools(Tool out[MAX_TOOLS]) const {
+  int n = 0;
+  if (hasSelection()) {
+    out[n++] = Tool::Copy;
+    out[n++] = Tool::Cut;
+    if (!clipboard::empty()) out[n++] = Tool::Paste;
+    out[n++] = Tool::SelectAll;
+  } else if (pasteMenu) {
+    out[n++] = Tool::Paste;
+    out[n++] = Tool::SelectAll;
+  } else {
+    out[n++] = Tool::Checkbox;
+    out[n++] = Tool::List;
+    out[n++] = Tool::Heading;
+  }
+  return n;
+}
+
+void NoteEditorActivity::applyTool(const Tool tool) {
+  switch (tool) {
+    case Tool::Checkbox:
+    case Tool::List:
+    case Tool::Heading:
+      clearSelection();
+      applyFormat(tool);
+      break;
+    case Tool::Copy:
+      clipboard::set(text.substr(selection.start, selection.end - selection.start));
+      clearSelection();
+      break;
+    case Tool::Cut:
+      clipboard::set(text.substr(selection.start, selection.end - selection.start));
+      eraseSelection();
+      break;
+    case Tool::Paste:
+      paste();
+      break;
+    case Tool::SelectAll:
+      selection = anchor = {0, text.size()};
+      cursor = selection.end;
+      pasteMenu = false;
+      styleStale = true;
+      break;
+  }
 }
 
 void NoteEditorActivity::handleEvent(const Event& event, bool& layoutChanged) {
@@ -601,6 +759,8 @@ void NoteEditorActivity::handleEvent(const Event& event, bool& layoutChanged) {
       applyAlternate(event.value);
       break;
     case EventType::TapText:
+      clearSelection();
+      pasteMenu = false;
       if (toggleCheckboxAt(event.x, event.y)) break;
       placeCursor(event.x, event.y);
       if (!keyboardShown.load()) {
@@ -609,7 +769,31 @@ void NoteEditorActivity::handleEvent(const Event& event, bool& layoutChanged) {
       }
       keepCursorVisible();
       break;
+    case EventType::DoubleTap:
+    case EventType::LongPress: {
+      // Holding the cursor with something copied offers Paste instead of selecting.
+      const size_t at = offsetAt(event.x, event.y);
+      if (event.type == EventType::LongPress && !hasSelection() && !clipboard::empty() &&
+          (at == cursor || text_select::wordAt(text, at).empty())) {
+        pasteMenu = true;
+      } else {
+        selectWord(event.x, event.y);
+      }
+      // The toolbar with the actions comes with the keyboard.
+      if (!keyboardShown.load()) {
+        keyboardShown = true;
+        fullRedraw = true;
+      }
+      break;
+    }
+    case EventType::SelectTo:
+      selectTo(static_cast<Drag>(event.value), event.x, event.y);
+      break;
     case EventType::ToggleKeyboard:
+      if (keyboardShown.load()) {
+        clearSelection();
+        pasteMenu = false;
+      }
       keyboardShown = !keyboardShown.load();
       fullRedraw = true;
       keepCursorVisible();
@@ -623,11 +807,14 @@ void NoteEditorActivity::handleEvent(const Event& event, bool& layoutChanged) {
     case EventType::ScrollBy:
       topLine = std::clamp(topLine + event.value, 0, maxTopLine());
       break;
-    case EventType::Format:
-      applyFormat(event.value);
+    case EventType::Toolbar: {
+      Tool list[MAX_TOOLS];
+      const int n = tools(list);
+      applyTool(list[std::clamp(event.x * n / renderer.getScreenWidth(), 0, n - 1)]);
       if (autoCapitalize()) layoutChanged = true;
       keepCursorVisible();
       break;
+    }
   }
 }
 
@@ -653,15 +840,52 @@ void NoteEditorActivity::drawHeader() const {
 }
 
 void NoteEditorActivity::drawToolbar() const {
-  static const freeink::Icon* const ICONS[FORMAT_COUNT] = {&icon_fmt_checkbox_28, &icon_fmt_list_28,
-                                                           &icon_fmt_heading_28};
+  Tool list[MAX_TOOLS];
+  const int n = tools(list);
   const int top = toolbarTop();
   const int width = renderer.getScreenWidth();
-  for (int i = 0; i < FORMAT_COUNT; ++i) {
-    const freeink::Icon& icon = *ICONS[i];
-    const int cx = width * (2 * i + 1) / (2 * FORMAT_COUNT);
-    renderer.drawIconUpright(icon.bits, cx - icon.w / 2, top + (TOOLBAR_HEIGHT - icon.h) / 2, icon.w, icon.h);
+  for (int i = 0; i < n; ++i) {
+    const int cx = width * (2 * i + 1) / (2 * n);
+    const freeink::Icon* icon = nullptr;
+    const char* label = nullptr;
+    switch (list[i]) {
+      case Tool::Checkbox:
+        icon = &icon_fmt_checkbox_28;
+        break;
+      case Tool::List:
+        icon = &icon_fmt_list_28;
+        break;
+      case Tool::Heading:
+        icon = &icon_fmt_heading_28;
+        break;
+      case Tool::Copy:
+        label = tr(STR_COPY);
+        break;
+      case Tool::Cut:
+        label = tr(STR_CUT);
+        break;
+      case Tool::Paste:
+        label = tr(STR_PASTE);
+        break;
+      case Tool::SelectAll:
+        label = tr(STR_SELECT_ALL);
+        break;
+    }
+    if (icon != nullptr) {
+      renderer.drawIconUpright(icon->bits, cx - icon->w / 2, top + (TOOLBAR_HEIGHT - icon->h) / 2, icon->w, icon->h);
+    } else {
+      const int textWidth = renderer.getTextWidth(fonts[0], label);
+      renderer.drawText(fonts[0], cx - textWidth / 2, top + (TOOLBAR_HEIGHT - renderer.getLineHeight(fonts[0])) / 2,
+                        label);
+    }
   }
+}
+
+// iPhone-style handle: a bar on the boundary with a knob above the start or below the end.
+void NoteEditorActivity::drawHandle(const int x, const int y, const int rowHeight, const bool start) const {
+  renderer.fillRect(x - 1, y, 2, rowHeight);
+  const int knobY = start ? y - HANDLE_KNOB : y + rowHeight;
+  renderer.fillRoundedRect(x - HANDLE_KNOB / 2, knobY, HANDLE_KNOB, HANDLE_KNOB, HANDLE_KNOB / 2, Color::Black);
 }
 
 void NoteEditorActivity::drawGlyph(const uint8_t attr, const int x, const int y, const int rowHeight) {
@@ -699,7 +923,11 @@ void NoteEditorActivity::drawText() {
   const int lines = static_cast<int>(lineStarts.size());
   const int last = std::min(lines, topLine + linesFrom(topLine));
   // The cursor shows only while typing: without the keyboard the note is read.
-  const int cursorLine = keyboardShown.load() ? lineOf(cursor) : -1;
+  const bool selected = hasSelection();
+  const int cursorLine = keyboardShown.load() && !selected ? lineOf(cursor) : -1;
+  const int startLine = selected ? lineOf(selection.start) : -1;
+  const int endLine = selected ? lineOf(selection.end) : -1;
+  int16_t startX = OFF_SCREEN, startY = OFF_SCREEN, endX = OFF_SCREEN, endY = OFF_SCREEN;
   std::string run;
   int y = textTop();
   for (int l = topLine; l < last; ++l) {
@@ -710,7 +938,10 @@ void NoteEditorActivity::drawText() {
     int x = MARGIN;
     int runX = x;
     uint8_t runAttr = 0;
+    bool runSelected = false;
     int cursorX = -1;
+    int selStartX = -1;
+    int selEndX = -1;
     int codeX = -1;  // left edge of the open code frame on this line
     const auto closeCode = [&]() {
       if (codeX < 0) return;
@@ -723,15 +954,19 @@ void NoteEditorActivity::drawText() {
       return runX + renderer.getTextAdvanceX(fonts[font], run.c_str(),
                                              static_cast<EpdFontFamily::Style>(runAttr & note_md::STYLE_MASK));
     };
+    // Selected text is drawn white on black.
     const auto flush = [&]() {
       if (run.empty()) return;
-      renderer.drawText(fonts[font], runX, y, run.c_str(), true,
+      if (runSelected) renderer.fillRect(runX, y, x - runX, rowHeight);
+      renderer.drawText(fonts[font], runX, y, run.c_str(), !runSelected,
                         static_cast<EpdFontFamily::Style>(runAttr & note_md::STYLE_MASK));
-      if (runAttr & note_md::STRIKE) renderer.fillRect(runX, y + rowHeight * 11 / 20, x - runX, 2);
+      if (runAttr & note_md::STRIKE) renderer.fillRect(runX, y + rowHeight * 11 / 20, x - runX, 2, !runSelected);
       run.clear();
     };
     for (size_t i = start; i < end;) {
       if (i == cursor) cursorX = caretX();
+      if (selected && i == selection.start) selStartX = caretX();
+      if (selected && i == selection.end) selEndX = caretX();
       uint32_t cp = 0;
       const size_t len = decode(text, i, cp);
       if (cp == '\n') break;
@@ -748,22 +983,42 @@ void NoteEditorActivity::drawText() {
         drawGlyph(a, x, y, rowHeight);
       } else {
         const uint8_t style = a & (note_md::STYLE_MASK | note_md::STRIKE);
-        if (!run.empty() && style != runAttr) flush();
+        const bool inSelection = selected && i >= selection.start && i < selection.end;
+        if (!run.empty() && (style != runAttr || inSelection != runSelected)) flush();
         if (run.empty()) {
           runX = x;
           runAttr = style;
+          runSelected = inSelection;
         }
         run.append(text, i, len);
       }
       x += w;
       i += len;
     }
-    if (l == cursorLine && cursorX < 0) cursorX = caretX();  // the cursor ends the line
+    // A boundary not met inside the line ends it.
+    if (l == cursorLine && cursorX < 0) cursorX = caretX();
+    if (l == startLine && selStartX < 0) selStartX = caretX();
+    if (l == endLine && selEndX < 0) selEndX = caretX();
     flush();
     closeCode();
     if (l == cursorLine) renderer.fillRect(cursorX - 1, y, 2, rowHeight);  // centered on the boundary
+    if (l == startLine) {
+      drawHandle(selStartX, y, rowHeight, true);
+      startX = static_cast<int16_t>(selStartX);
+      startY = static_cast<int16_t>(y + rowHeight / 2);
+    }
+    if (l == endLine) {
+      drawHandle(selEndX, y, rowHeight, false);
+      endX = static_cast<int16_t>(selEndX);
+      endY = static_cast<int16_t>(y + rowHeight / 2);
+    }
     y += rowHeight;
   }
+  startHandleX = startX;
+  startHandleY = startY;
+  endHandleX = endX;
+  endHandleY = endY;
+  selectionShown = selected;
 }
 
 void NoteEditorActivity::render(RenderLock&&) {
@@ -772,7 +1027,7 @@ void NoteEditorActivity::render(RenderLock&&) {
   int events = 0;
   Event event{};
   while (popEvent(event)) {
-    if (event.type == EventType::Key || event.type == EventType::Alternate || event.type == EventType::Format) {
+    if (event.type == EventType::Key || event.type == EventType::Alternate || event.type == EventType::Toolbar) {
       ++keyEvents;
     }
     ++events;
