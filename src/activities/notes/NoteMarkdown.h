@@ -10,31 +10,27 @@
 // rewritten, so offsets stay byte offsets into the source text.
 namespace note_md {
 
-using Attr = uint16_t;
-
-inline constexpr Attr STYLE_MASK = 0x03;  // EpdFontFamily::Style: regular, bold, italic, bold italic
-inline constexpr Attr BOLD = 0x01;
-inline constexpr Attr ITALIC = 0x02;
-inline constexpr Attr HIDDEN = 0x04;  // markup: zero width, not drawn
-inline constexpr int GLYPH_SHIFT = 3;
-inline constexpr Attr GLYPH_MASK = 0x38;
-inline constexpr Attr STRIKE = 0x40;
-inline constexpr Attr CODE = 0x80;        // inside `code`: drawn in a frame
-inline constexpr Attr LINK = 0x100;       // link text or a bare URL: underlined
-inline constexpr Attr NO_INLINE = 0x200;  // no inline markup inside (code, URLs)
+inline constexpr uint8_t STYLE_MASK = 0x03;  // EpdFontFamily::Style: regular, bold, italic, bold italic
+inline constexpr uint8_t BOLD = 0x01;
+inline constexpr uint8_t ITALIC = 0x02;
+inline constexpr uint8_t HIDDEN = 0x04;  // markup: zero width, not drawn
+inline constexpr uint8_t GLYPH_SHIFT = 3;
+inline constexpr uint8_t GLYPH_MASK = 0x38;
+inline constexpr uint8_t STRIKE = 0x40;
+inline constexpr uint8_t CODE = 0x80;  // inside `code`: no inline markup
 
 // A list or block marker drawn in place of its first byte.
 // CodeEdge is a backtick drawn as the padding of the frame around `code`.
 enum class Glyph : uint8_t { None, Bullet, Box, BoxChecked, Quote, Rule, CodeEdge };
 
-inline Glyph glyphOf(const Attr attr) { return static_cast<Glyph>((attr & GLYPH_MASK) >> GLYPH_SHIFT); }
+inline Glyph glyphOf(const uint8_t attr) { return static_cast<Glyph>((attr & GLYPH_MASK) >> GLYPH_SHIFT); }
 
 // Fills attrs with one entry per byte of text. The paragraph starting at
 // rawStart (the one being edited) keeps its markup visible; pass npos for none.
-void style(const std::string& text, size_t rawStart, std::vector<Attr>& attrs);
+void style(const std::string& text, size_t rawStart, std::vector<uint8_t>& attrs);
 
 // 1-6 for a heading paragraph starting at `start`, 0 otherwise.
-int headingLevel(const std::string& text, const std::vector<Attr>& attrs, size_t start);
+int headingLevel(const std::string& text, const std::vector<uint8_t>& attrs, size_t start);
 
 // The list marker that opens the paragraph [start, end), if any.
 struct ListPrefix {

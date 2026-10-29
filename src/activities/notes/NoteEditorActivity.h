@@ -70,7 +70,7 @@ class NoteEditorActivity final : public Activity {
   int16_t pressedKey = INT16_MIN;
   std::vector<uint32_t> lineStarts;  // byte offset of each wrapped line
   std::vector<uint8_t> lineFonts;    // font slot of each wrapped line (headings are larger)
-  std::vector<note_md::Attr> attrs;  // note_md attributes, one per byte of text
+  std::vector<uint8_t> attrs;        // note_md attributes, one per byte of text
   bool styleStale = true;            // text changed since attrs were computed
   int topLine = 0;
   static constexpr uint32_t CACHED_CPS = 0x460;
@@ -101,7 +101,7 @@ class NoteEditorActivity final : public Activity {
   void restyle();
   bool toggleCheckboxAt(int x, int y);
   void insertNewline();
-  void drawGlyph(note_md::Attr attr, int x, int y, int lineHeight);
+  void drawGlyph(uint8_t attr, int x, int y, int lineHeight);
   void wrap();
   int lineOf(size_t offset) const;
   void keepCursorVisible();

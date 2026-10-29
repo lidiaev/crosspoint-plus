@@ -7,17 +7,17 @@ using namespace note_md;
 namespace {
 // What the editor shows: hidden bytes dropped, glyphs as tokens, styled runs bracketed.
 std::string shown(const std::string& text, size_t rawStart = std::string::npos) {
-  std::vector<Attr> attrs;
+  std::vector<uint8_t> attrs;
   style(text, rawStart, attrs);
   std::string out;
-  Attr open = 0;
+  uint8_t open = 0;
   for (size_t i = 0; i < text.size(); ++i) {
-    const Attr a = attrs[i];
+    const uint8_t a = attrs[i];
     if (a & HIDDEN) continue;
-    const Attr s = a & (STYLE_MASK | STRIKE | LINK);
+    const uint8_t s = a & (STYLE_MASK | STRIKE);
     if (s != open) {
       if (open) out += "}";
-      if (s) out += (s & LINK) ? "L{" : (s & STRIKE) ? "~{" : (s == BOLD ? "B{" : (s == ITALIC ? "I{" : "BI{"));
+      if (s) out += (s & STRIKE) ? "~{" : (s == BOLD ? "B{" : (s == ITALIC ? "I{" : "BI{"));
       open = s;
     }
     switch (glyphOf(a)) {
@@ -75,7 +75,7 @@ TEST(NoteMarkdown, CodeIsLiteralAndFramed) {
 }
 
 TEST(NoteMarkdown, HeadingLevel) {
-  std::vector<Attr> attrs;
+  std::vector<uint8_t> attrs;
   const std::string t = "# A\n### B\n#C";
   style(t, std::string::npos, attrs);
   EXPECT_EQ(headingLevel(t, attrs, 0), 1);
@@ -112,15 +112,8 @@ TEST(NoteMarkdown, ListPrefixContinues) {
   EXPECT_EQ(listPrefix("plain", 0, 5).length, 0u);
 }
 
-TEST(NoteMarkdown, Links) {
-  EXPECT_EQ(shown("see [the docs](http://x.y/a_b) now"), "see L{the docs} now");
-  EXPECT_EQ(shown("go https://a.b/c_d_e ok"), "go L{https://a.b/c_d_e} ok");
-  EXPECT_EQ(shown("[] (x)"), "[] (x)");
-}
-
 TEST(NoteMarkdown, PlainText) {
   EXPECT_EQ(plainText("# **Plan** for `x`"), "Plan for x");
   EXPECT_EQ(plainText("- [ ] buy *milk*"), "buy milk");
   EXPECT_EQ(plainText("- eggs"), "• eggs");
-  EXPECT_EQ(plainText("[site](http://s)"), "site");
 }

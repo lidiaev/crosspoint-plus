@@ -287,7 +287,7 @@ int NoteEditorActivity::boxSize() const { return renderer.getLineHeight(TEXT_FON
 // Width of the code point at offset i as displayed: markup is zero-width, list
 // markers take their glyph's width.
 int NoteEditorActivity::widthAt(const size_t i, const uint32_t cp, const uint8_t font) {
-  const note_md::Attr a = attrs[i];
+  const uint8_t a = attrs[i];
   if (a & note_md::HIDDEN) return 0;
   switch (note_md::glyphOf(a)) {
     case note_md::Glyph::Bullet:
@@ -304,7 +304,7 @@ int NoteEditorActivity::widthAt(const size_t i, const uint32_t cp, const uint8_t
     case note_md::Glyph::None:
       break;
   }
-  return advance(cp, static_cast<uint8_t>(a & note_md::STYLE_MASK), font);
+  return advance(cp, a, font);
 }
 
 // The paragraph with the cursor shows its markup while the keyboard is up.
@@ -572,7 +572,7 @@ void NoteEditorActivity::drawHeader() const {
                            keyboardShown.load() ? icon_keyboard_off_32 : icon_keyboard_32);
 }
 
-void NoteEditorActivity::drawGlyph(const note_md::Attr attr, const int x, const int y, const int lineHeight) {
+void NoteEditorActivity::drawGlyph(const uint8_t attr, const int x, const int y, const int lineHeight) {
   switch (note_md::glyphOf(attr)) {
     case note_md::Glyph::Bullet:
       renderer.drawText(TEXT_FONT, x, y, "•");
@@ -617,7 +617,7 @@ void NoteEditorActivity::drawText() {
     const int lineHeight = renderer.getLineHeight(FONTS[font]);
     int x = MARGIN;
     int runX = x;
-    note_md::Attr runAttr = 0;
+    uint8_t runAttr = 0;
     int cursorX = -1;
     int codeX = -1;  // left edge of the open code frame on this line
     const auto closeCode = [&]() {
@@ -636,8 +636,6 @@ void NoteEditorActivity::drawText() {
       renderer.drawText(FONTS[font], runX, y, run.c_str(), true,
                         static_cast<EpdFontFamily::Style>(runAttr & note_md::STYLE_MASK));
       if (runAttr & note_md::STRIKE) renderer.fillRect(runX, y + lineHeight * 11 / 20, x - runX, 2);
-      if (runAttr & note_md::LINK)
-        renderer.fillRect(runX, y + renderer.getFontAscenderSize(FONTS[font]) + 3, x - runX, 1);
       run.clear();
     };
     for (size_t i = start; i < end;) {
@@ -645,7 +643,7 @@ void NoteEditorActivity::drawText() {
       uint32_t cp = 0;
       const size_t len = decode(text, i, cp);
       if (cp == '\n') break;
-      const note_md::Attr a = attrs[i];
+      const uint8_t a = attrs[i];
       const int w = widthAt(i, cp, font);
       if (a & note_md::HIDDEN) {
         i += len;
@@ -657,7 +655,7 @@ void NoteEditorActivity::drawText() {
         flush();
         drawGlyph(a, x, y, lineHeight);
       } else {
-        const note_md::Attr style = a & (note_md::STYLE_MASK | note_md::STRIKE | note_md::LINK);
+        const uint8_t style = a & (note_md::STYLE_MASK | note_md::STRIKE);
         if (!run.empty() && style != runAttr) flush();
         if (run.empty()) {
           runX = x;
