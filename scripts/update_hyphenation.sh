@@ -17,13 +17,4 @@ process() {
 }
 
 process en
-process fr
-process de
-process es
 process ru
-process it
-process uk
-process pl
-process pt
-process sv
-process fi
