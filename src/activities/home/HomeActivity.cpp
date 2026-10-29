@@ -22,6 +22,7 @@
 #include "MappedInputManager.h"
 #include "OpdsServerStore.h"
 #include "RecentBooksStore.h"
+#include "activities/notes/NotesListActivity.h"
 #include "activities/notes/TypingLabActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -555,9 +556,7 @@ void HomeActivity::onNotesOpen() {
   activityManager.replaceActivity(std::make_unique<TypingLabActivity>(renderer, mappedInput));
   return;
 #endif
-  // Notes are plain Markdown files in /notes, opened through the file browser for now.
-  Storage.ensureDirectoryExists("/notes");
-  activityManager.goToFileBrowser("/notes");
+  activityManager.replaceActivity(std::make_unique<NotesListActivity>(renderer, mappedInput));
 }
 
 void HomeActivity::onLibraryOpen() { activityManager.goToLibrary(); }
