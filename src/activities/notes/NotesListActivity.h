@@ -7,6 +7,7 @@
 #include "activities/UiListActivity.h"
 
 // Home > Notes: "New note" followed by the notes in /notes, newest first.
+// The header searches titles and text, like the Library's.
 class NotesListActivity final : public UiListActivity {
  public:
   NotesListActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
@@ -20,10 +21,23 @@ class NotesListActivity final : public UiListActivity {
   void activateIndex(int index) override;
   const char* headerTitle() const override;
   void onBackButton() override;
+  void drawChrome() override {}
   void drawFooter() override {}
 
  private:
+  static constexpr freeink::ui::ActionId ACTION_SEARCH = ACTION_USER;
+  static constexpr freeink::ui::ActionId ACTION_BACK = ACTION_USER + 1;
+
   std::vector<notes::NoteInfo> notesList;
+  std::vector<int> shown;  // notesList indices matching the query, in order
   std::vector<freeink::ui::ListItem> rows;
-  std::string newNoteLabel;
+  std::string query;
+  std::string searchTitle;  // the query, quoted for the header
+
+  void applyFilter();
+  void rebuildRows();
+  void openSearch();
+  void buildHeader(UiScreen& screen);
+  static void searchTrampoline(const freeink::ui::ActionEvent& event, void* user);
+  static void backTrampoline(const freeink::ui::ActionEvent& event, void* user);
 };

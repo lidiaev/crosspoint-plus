@@ -16,6 +16,8 @@
 #include "activities/ActivityManager.h"
 #include "activities/RenderLock.h"
 #include "activities/util/KeyboardLayoutSet.h"
+#include "components/UITheme.h"
+#include "components/icons/notesIcons.h"
 #include "fontIds.h"
 
 namespace fui = freeink::ui;
@@ -56,17 +58,16 @@ void NoteEditorActivity::onEnter() {
   requestUpdate();
 }
 
+// ActivityManager calls onExit with the render lock held, so the render task is
+// idle here; taking the lock again would deadlock.
 void NoteEditorActivity::onExit() {
-  {
-    RenderLock lock;
-    saveNow();
-    // Keep the file name in step with the first line.
-    if (!path.empty()) {
-      const std::string desired = notes::pathFor(text, path);
-      if (desired != path && notes::save(desired, text)) {
-        notes::remove(path);
-        path = desired;
-      }
+  saveNow();
+  // Keep the file name in step with the first line.
+  if (!path.empty()) {
+    const std::string desired = notes::pathFor(text, path);
+    if (desired != path && notes::save(desired, text)) {
+      notes::remove(path);
+      path = desired;
     }
   }
   fast_typing::disable();
@@ -89,7 +90,10 @@ bool NoteEditorActivity::popEvent(Event& event) {
   return true;
 }
 
-int NoteEditorActivity::headerHeight() const { return renderer.getLineHeight(UI_12_FONT_ID) + 2 * MARGIN; }
+int NoteEditorActivity::headerHeight() const {
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  return metrics.topPadding + metrics.headerHeight;
+}
 
 int NoteEditorActivity::textTop() const { return headerHeight() + MARGIN / 2; }
 
@@ -152,10 +156,7 @@ void NoteEditorActivity::loop() {
   for (uint8_t i = 0; i < count; ++i) {
     const TouchTracker::Press& p = presses[i];
     if (p.y < headerHeight()) {
-      if (p.x < width / 3) {
-        exitRequested = true;
-        return;
-      }
+      // The back arrow reaches loop() as Button::Back (HeaderBackTapTarget).
       if (p.x >= 2 * width / 3) {
         enqueue(Event{EventType::ToggleKeyboard, 0, p.x, p.y, p.downMs});
         update = true;
@@ -375,17 +376,11 @@ void NoteEditorActivity::saveNow() {
   if (notes::save(path, text)) dirty = false;
 }
 
+// The system header: status band, back arrow, title, and a keyboard toggle.
 void NoteEditorActivity::drawHeader() const {
-  const int width = renderer.getScreenWidth();
-  const int bar = headerHeight();
-  renderer.drawText(UI_12_FONT_ID, MARGIN, MARGIN, "< ");
-  const int arrow = renderer.getTextWidth(UI_12_FONT_ID, "< ");
-  renderer.drawText(UI_12_FONT_ID, MARGIN + arrow, MARGIN, tr(STR_NOTES));
-  const char* toggle = keyboardShown.load() ? tr(STR_HIDE_KEYBOARD) : tr(STR_SHOW_KEYBOARD);
-  const int tw = renderer.getTextWidth(SMALL_FONT_ID, toggle);
-  const int sh = renderer.getLineHeight(SMALL_FONT_ID);
-  renderer.drawText(SMALL_FONT_ID, width - MARGIN - tw, (bar - sh) / 2, toggle);
-  renderer.drawLine(0, bar - 1, width - 1, bar - 1);
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  GUI.drawHeaderWithAction(renderer, Rect{0, metrics.topPadding, renderer.getScreenWidth(), metrics.headerHeight},
+                           tr(STR_NOTES), keyboardShown.load() ? icon_keyboard_off_32 : icon_keyboard_32);
 }
 
 void NoteEditorActivity::drawText() {

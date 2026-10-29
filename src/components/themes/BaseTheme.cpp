@@ -373,6 +373,16 @@ void BaseTheme::applyHeaderStatus(const GfxRenderer& renderer, freeink::ui::Head
 
 void BaseTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char* title, const char* subtitle,
                            const bool backButton) const {
+  paintHeader(renderer, rect, title, subtitle, backButton, nullptr);
+}
+
+Rect BaseTheme::drawHeaderWithAction(const GfxRenderer& renderer, const Rect rect, const char* title,
+                                     const freeink::Icon& actionIcon) const {
+  return paintHeader(renderer, rect, title, nullptr, true, &actionIcon);
+}
+
+Rect BaseTheme::paintHeader(const GfxRenderer& renderer, Rect rect, const char* title, const char* subtitle,
+                            const bool backButton, const freeink::Icon* actionIcon) {
   // Every activity header renders through the FreeInkUI header + battery
   // indicator components, styled by the active theme's tokens (padding,
   // centering, underline). Non-interactive frame: no hit rects registered.
@@ -432,7 +442,17 @@ void BaseTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char* t
     props.styles.normal.border = fui::Paint::solid(fui::Color::Black);
     props.styles.normal.borderWidth = tokens.headerUnderline;
   }
+  Rect actionRect;
+  if (actionIcon != nullptr) {
+    // Same slot the FUI header gives its trailing button (right edge - 12).
+    const int size = props.trailingSize > 0 ? props.trailingSize : band.height - 8;
+    props.trailingIcon = fui::bitmapFromIcon(*actionIcon);
+    props.trailingAction = 1;  // paints the button; the caller routes the tap
+    props.trailingStyles = fui::plainStyles(fui::Paint::solid(fui::Color::Black));
+    actionRect = Rect{band.x + band.width - 12 - size, band.y + 4 + props.actionOffsetY, size, size};
+  }
   fui::header(ui.frame, band, props);
+  return actionRect;
 }
 
 void BaseTheme::drawSubHeader(const GfxRenderer& renderer, Rect rect, const char* label, const char* rightLabel) const {

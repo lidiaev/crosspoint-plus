@@ -9,7 +9,8 @@
 
 namespace notes {
 namespace {
-constexpr size_t TITLE_PEEK_BYTES = 192;
+constexpr size_t TITLE_PEEK_BYTES = 320;
+constexpr size_t PREVIEW_BYTES = 120;
 constexpr size_t NAME_BYTES = 120;
 constexpr size_t TITLE_FILE_CHARS = 48;  // bytes of the title kept in a file name
 
@@ -35,6 +36,37 @@ std::string titleOf(const std::string& text) {
   return {};
 }
 
+std::string previewOf(const std::string& text, const size_t maxBytes) {
+  // Skip to the end of the title line (the first non-blank one).
+  size_t i = 0;
+  while (i < text.size() && (text[i] == '\n' || text[i] == ' ' || text[i] == '\t' || text[i] == '#')) ++i;
+  i = text.find('\n', i);
+  std::string out;
+  if (i == std::string::npos) return out;
+  out.reserve(std::min(maxBytes, text.size() - i));
+  bool lineStart = true;
+  for (; i < text.size() && out.size() < maxBytes; ++i) {
+    const char c = text[i];
+    if (c == '\n' || c == '\t' || c == ' ') {
+      if (!out.empty() && out.back() != ' ') out.push_back(' ');
+      lineStart = lineStart || c == '\n';
+      continue;
+    }
+    if (lineStart && c == '#') continue;
+    lineStart = false;
+    out.push_back(c);
+  }
+  // Cut back to a whole UTF-8 sequence if the byte budget split one.
+  if (out.size() >= maxBytes) {
+    size_t cut = out.size();
+    while (cut > 0 && (static_cast<uint8_t>(out[cut - 1]) & 0xC0) == 0x80) --cut;
+    if (cut > 0 && static_cast<uint8_t>(out[cut - 1]) >= 0xC0) --cut;
+    out.resize(cut);
+  }
+  while (!out.empty() && out.back() == ' ') out.pop_back();
+  return out;
+}
+
 std::vector<NoteInfo> list() {
   std::vector<NoteInfo> out;
   Storage.ensureDirectoryExists(DIR);
@@ -56,7 +88,9 @@ std::vector<NoteInfo> list() {
     peek[n > 0 ? n : 0] = '\0';
     NoteInfo info;
     info.path = std::string(DIR) + "/" + name;
-    info.title = titleOf(peek);
+    const std::string head(peek);
+    info.title = titleOf(head);
+    info.preview = previewOf(head, PREVIEW_BYTES);
     if (info.title.empty()) {
       info.title.assign(name, strlen(name) - 3);  // file name without ".md"
     }

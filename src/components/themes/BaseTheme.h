@@ -10,6 +10,7 @@ class Bitmap;
 class GfxRenderer;
 struct RecentBook;
 namespace freeink {
+struct Icon;
 namespace ui {
 struct HeaderProps;
 }  // namespace ui
@@ -256,6 +257,10 @@ class BaseTheme {
   // screens that own their stack bottom pass backButton = false.
   virtual void drawHeader(const GfxRenderer& renderer, Rect rect, const char* title, const char* subtitle = nullptr,
                           bool backButton = true) const;
+  // drawHeader plus one icon button at the right end of the title row, for
+  // screens that draw without a FreeInkUI app. Returns the button's tap rect.
+  Rect drawHeaderWithAction(const GfxRenderer& renderer, Rect rect, const char* title,
+                            const freeink::Icon& actionIcon) const;
   // Fill the battery/clock status chrome (settings + theme metrics) into
   // header props, so FUI-native screens drawing their own interactive header
   // carry the same band as drawHeader. Status text is styled with the
@@ -292,4 +297,8 @@ class BaseTheme {
   static constexpr int batteryPercentSpacing = 4;
   static void drawBatteryOutline(const GfxRenderer& renderer, int x, int y, int battWidth, int rectHeight);
   static void drawBatteryLightningBolt(const GfxRenderer& renderer, int boltX, int boltY);
+
+ private:
+  static Rect paintHeader(const GfxRenderer& renderer, Rect rect, const char* title, const char* subtitle,
+                          bool backButton, const freeink::Icon* actionIcon);
 };
