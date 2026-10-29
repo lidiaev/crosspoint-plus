@@ -10,7 +10,8 @@
 #include "components/typing/TouchTracker.h"
 #include "components/typing/TypingKeyboard.h"
 
-enum class InputType { Text, Password, Url };
+// Search shows a magnifier on Return; the others show a check mark.
+enum class InputType { Text, Password, Url, Search };
 
 // System text entry: the notes keyboard (keys commit on touch-down, fast
 // typing display mode) under a system header with Done. Return also submits.

@@ -1,0 +1,13 @@
+# Regenerate from the repository root with:
+#   python3 freeink-sdk/libs/assets/Icons/tools/gen_icons.py \
+#     --manifest src/components/icons/keyboardIcons.manifest \
+#     --svgdir <dir with the Lucide icons below and arrow-big-up-filled.svg> \
+#     --sizes 28 --out src/components/icons/keyboardIcons.h
+# arrow-big-up-filled.svg is Lucide arrow-big-up with fill="black" (Shift on).
+key-delete = delete
+key-return = corner-down-left
+key-shift = arrow-big-up
+key-shift-on = arrow-big-up-filled
+key-caps = arrow-big-up-dash
+key-search = search
+key-done = check

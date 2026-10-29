@@ -16,6 +16,9 @@ class GfxRenderer;
 class TypingKeyboard {
  public:
   enum class Action : uint8_t { None, Insert, Backspace, Enter, LayoutChanged };
+  // What Return does here, shown on the key: a new line, search, or finish entry.
+  enum class ReturnKey : uint8_t { Newline, Search, Done };
+  void setReturnKey(ReturnKey key) { returnKey = key; }
 
   void begin(bool english);
   // Opening layer: Russian under a Russian UI, English otherwise.
@@ -48,6 +51,7 @@ class TypingKeyboard {
 
   void build();
 
+  ReturnKey returnKey = ReturnKey::Newline;
   bool english = false;
   bool shifted = false;
   bool capsLock = false;

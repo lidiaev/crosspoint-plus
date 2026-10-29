@@ -422,7 +422,7 @@ void LibraryListActivity::openSearch() {
   // was built, tested on device and removed: a letter you can see but cannot
   // reach reads as a broken keyboard, and the eye keeps returning to it.
   auto keyboard = makeUniqueNoThrow<KeyboardEntryActivity>(renderer, mappedInput, tr(STR_LIBRARY_SEARCH), query, 48,
-                                                           InputType::Text);
+                                                           InputType::Search);
   if (!keyboard) {
     LOG_ERR("LIB", "OOM: search keyboard");
     return;

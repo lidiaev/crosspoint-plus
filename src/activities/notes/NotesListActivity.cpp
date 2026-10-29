@@ -88,7 +88,7 @@ void NotesListActivity::onBackButton() {
 void NotesListActivity::openSearch() {
   app.clearTapFlash();
   auto keyboard =
-      makeUniqueNoThrow<KeyboardEntryActivity>(renderer, mappedInput, tr(STR_SEARCH), query, 48, InputType::Text);
+      makeUniqueNoThrow<KeyboardEntryActivity>(renderer, mappedInput, tr(STR_SEARCH), query, 48, InputType::Search);
   if (!keyboard) {
     LOG_ERR("NOTES", "OOM: search keyboard");
     return;

@@ -5,6 +5,7 @@
 
 #include <cstring>
 
+#include "components/icons/keyboardIcons.h"
 #include "fontIds.h"
 
 namespace fui = freeink::ui;
@@ -59,31 +60,9 @@ void encodeUtf8(const uint16_t cp, char out[4]) {
   }
 }
 
-// Control-key glyphs: one 2 px outline style, centered on (cx, cy).
-void drawShiftGlyph(const GfxRenderer& r, int cx, int cy, bool on, bool caps, bool ink) {
-  const int xs[7] = {cx, cx + 10, cx + 5, cx + 5, cx - 5, cx - 5, cx - 10};
-  const int ys[7] = {cy - 11, cy - 1, cy - 1, cy + 8, cy + 8, cy - 1, cy - 1};
-  if (on) {
-    r.fillPolygon(xs, ys, 7, ink);
-  } else {
-    for (int i = 0; i < 7; ++i) r.drawLine(xs[i], ys[i], xs[(i + 1) % 7], ys[(i + 1) % 7], 2, ink);
-  }
-  if (caps) r.fillRect(cx - 5, cy + 11, 11, 2, ink);
-}
-
-void drawDeleteGlyph(const GfxRenderer& r, int cx, int cy, bool ink) {
-  const int xs[5] = {cx - 13, cx - 5, cx + 12, cx + 12, cx - 5};
-  const int ys[5] = {cy, cy - 9, cy - 9, cy + 9, cy + 9};
-  for (int i = 0; i < 5; ++i) r.drawLine(xs[i], ys[i], xs[(i + 1) % 5], ys[(i + 1) % 5], 2, ink);
-  r.drawLine(cx - 1, cy - 4, cx + 7, cy + 4, 2, ink);
-  r.drawLine(cx - 1, cy + 4, cx + 7, cy - 4, 2, ink);
-}
-
-void drawReturnGlyph(const GfxRenderer& r, int cx, int cy, bool ink) {
-  r.drawLine(cx + 10, cy - 8, cx + 10, cy + 3, 2, ink);
-  r.drawLine(cx + 10, cy + 3, cx - 10, cy + 3, 2, ink);
-  r.drawLine(cx - 10, cy + 3, cx - 4, cy - 3, 2, ink);
-  r.drawLine(cx - 10, cy + 3, cx - 4, cy + 9, 2, ink);
+// Control keys use Lucide icons, the same set as the rest of the UI.
+void drawKeyIcon(const GfxRenderer& r, const freeink::Icon& icon, int cx, int cy, bool ink) {
+  r.drawIcon(icon.bits, cx - icon.w / 2, cy - icon.h / 2, icon.w, ink);
 }
 
 void drawLabel(const GfxRenderer& r, int font, int cx, int cy, const char* label, bool ink) {
@@ -269,13 +248,21 @@ void TypingKeyboard::draw(const GfxRenderer& renderer, const int16_t pressed) {
       const int cy = y + rowHeight / 2;
       switch (key.kind) {
         case fui::KeyKind::Shift:
-          drawShiftGlyph(renderer, cx, cy, upper, capsLock, ink);
+          drawKeyIcon(renderer,
+                      capsLock ? icon_key_caps_28
+                      : upper  ? icon_key_shift_on_28
+                               : icon_key_shift_28,
+                      cx, cy, ink);
           break;
         case fui::KeyKind::Delete:
-          drawDeleteGlyph(renderer, cx, cy, ink);
+          drawKeyIcon(renderer, icon_key_delete_28, cx, cy, ink);
           break;
         case fui::KeyKind::Ok:
-          drawReturnGlyph(renderer, cx, cy, ink);
+          drawKeyIcon(renderer,
+                      returnKey == ReturnKey::Search ? icon_key_search_28
+                      : returnKey == ReturnKey::Done ? icon_key_done_28
+                                                     : icon_key_return_28,
+                      cx, cy, ink);
           break;
         case fui::KeyKind::Lang:
           drawLabel(renderer, SMALL_FONT_ID, cx, cy, english ? "EN" : "RU", ink);

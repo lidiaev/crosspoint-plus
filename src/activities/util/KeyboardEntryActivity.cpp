@@ -38,6 +38,8 @@ size_t codePointBytes(const std::string& s, const size_t i) {
 void KeyboardEntryActivity::onEnter() {
   Activity::onEnter();
   keyboard.begin(inputType == InputType::Url || TypingKeyboard::startsInEnglish());
+  keyboard.setReturnKey(inputType == InputType::Search ? TypingKeyboard::ReturnKey::Search
+                                                       : TypingKeyboard::ReturnKey::Done);
   lineStarts.reserve(8);
   cursor = text.size();
   fast_typing::enable();
