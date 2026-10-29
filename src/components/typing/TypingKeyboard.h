@@ -18,6 +18,8 @@ class TypingKeyboard {
   enum class Action : uint8_t { None, Insert, Backspace, Enter, LayoutChanged };
 
   void begin(bool english);
+  // Opening layer: Russian under a Russian UI, English otherwise.
+  static bool startsInEnglish();
   // Height for a screen width; the keyboard sits at the bottom of the screen.
   static int height();
   freeink::ui::Rect rect(const GfxRenderer& renderer) const;

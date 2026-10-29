@@ -1,6 +1,7 @@
 #include "TypingKeyboard.h"
 
 #include <GfxRenderer.h>
+#include <I18n.h>
 
 #include <cstring>
 
@@ -361,3 +362,5 @@ int16_t TypingKeyboard::alternateOf(const int16_t value) {
       return 0;
   }
 }
+
+bool TypingKeyboard::startsInEnglish() { return I18N.getLanguage() != Language::RU; }

@@ -15,7 +15,6 @@
 #include "NotesStore.h"
 #include "activities/ActivityManager.h"
 #include "activities/RenderLock.h"
-#include "activities/util/KeyboardLayoutSet.h"
 #include "components/UITheme.h"
 #include "components/icons/notesIcons.h"
 #include "components/typing/FastTyping.h"
@@ -61,7 +60,7 @@ void NoteEditorActivity::onEnter() {
   // A new note opens ready to type; an existing one opens for reading.
   keyboardShown = path.empty();
   lineStarts.reserve(64);
-  keyboard.begin(keyboard_layouts::startingLayout() == fui::KeyboardLayoutId::QwertyEn);
+  keyboard.begin(TypingKeyboard::startsInEnglish());
   keyboard.autoCapitalize(text, cursor);
   fast_typing::enable();
   fullRedraw = true;

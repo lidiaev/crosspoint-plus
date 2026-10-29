@@ -107,9 +107,6 @@ void CrossPointSettings::toJson(JsonDocument& doc) const {
 
   // A uint16_t mask, so it does not fit the uint8_t generic loop. Omitted while
   // unconfigured, so the default keeps following the UI language.
-  if (keyboardLayouts != 0) {
-    doc["keyboardLayouts"] = keyboardLayouts;
-  }
 }
 
 bool CrossPointSettings::fromJson(JsonVariantConst doc) {
@@ -265,9 +262,6 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc) {
   }
 
   // Absent means unconfigured, which is the default.
-  if (doc["keyboardLayouts"].is<uint16_t>()) {
-    keyboardLayouts = doc["keyboardLayouts"].as<uint16_t>();
-  }
 
   if (needsResave) {
     LOG_DBG("CPS", "Resaving settings to update format");

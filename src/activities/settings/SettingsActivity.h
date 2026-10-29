@@ -22,9 +22,7 @@ enum class SettingAction {
   CheckForUpdates,
   SdFirmwareUpdate,
   Language,
-  DownloadFonts,
   TextSettings,
-  KeyboardLayouts,
   HomeButton,
   About,
 };

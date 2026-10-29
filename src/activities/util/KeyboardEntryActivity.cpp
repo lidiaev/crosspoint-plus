@@ -7,7 +7,6 @@
 #include <algorithm>
 #include <cstring>
 
-#include "KeyboardLayoutSet.h"
 #include "MappedInputManager.h"
 #include "components/UITheme.h"
 #include "components/icons/notesIcons.h"
@@ -37,7 +36,7 @@ size_t codePointBytes(const std::string& s, const size_t i) {
 
 void KeyboardEntryActivity::onEnter() {
   Activity::onEnter();
-  keyboard.begin(inputType == InputType::Url || keyboard_layouts::startingLayout() == fui::KeyboardLayoutId::QwertyEn);
+  keyboard.begin(inputType == InputType::Url || TypingKeyboard::startsInEnglish());
   lineStarts.reserve(8);
   cursor = text.size();
   fast_typing::enable();

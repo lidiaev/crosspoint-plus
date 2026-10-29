@@ -18,9 +18,7 @@
 #include "ClearCacheActivity.h"
 #include "ClockSettingsActivity.h"
 #include "CrossPointSettings.h"
-#include "FontDownloadActivity.h"
 #include "HomeButtonSettingsActivity.h"
-#include "KeyboardLayoutsActivity.h"
 #include "LanguageSelectActivity.h"
 #include "MappedInputManager.h"
 #include "OtaUpdateActivity.h"
@@ -104,13 +102,10 @@ void SettingsActivity::rebuildSettingsLists() {
   // asset isn't published yet just report no update available.
   systemSettings.push_back(SettingInfo::Action(StrId::STR_CHECK_UPDATES, SettingAction::CheckForUpdates));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_SD_FIRMWARE_UPDATE, SettingAction::SdFirmwareUpdate));
-  systemSettings.push_back(SettingInfo::Action(StrId::STR_KEYBOARD_LAYOUTS, SettingAction::KeyboardLayouts));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_ABOUT, SettingAction::About));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_LANGUAGE, SettingAction::Language));
   readerSettings.insert(readerSettings.begin(),
                         SettingInfo::Action(StrId::STR_TEXT_SETTINGS, SettingAction::TextSettings));
-  readerSettings.insert(readerSettings.begin() + 1,
-                        SettingInfo::Action(StrId::STR_MANAGE_FONTS, SettingAction::DownloadFonts));
   readerSettings.push_back(SettingInfo::Action(StrId::STR_CUSTOMISE_STATUS_BAR, SettingAction::CustomiseStatusBar));
 
   // Update currentSettings pointer and count for the active category
@@ -376,13 +371,6 @@ void SettingsActivity::toggleCurrentSetting() {
       case SettingAction::SdFirmwareUpdate:
         startActivityForResult(std::make_unique<SdFirmwareUpdateActivity>(renderer, mappedInput), resultHandler);
         break;
-      case SettingAction::DownloadFonts:
-        startActivityForResult(std::make_unique<FontDownloadActivity>(renderer, mappedInput),
-                               [this](const ActivityResult&) {
-                                 SETTINGS.saveToFile();
-                                 rebuildSettingsLists();
-                               });
-        break;
       case SettingAction::TextSettings:
         startActivityForResult(std::make_unique<TextSettingsActivity>(renderer, mappedInput, &sdFontSystem.registry(),
                                                                       TextSettingsActivity::Tab::Family),
@@ -400,13 +388,6 @@ void SettingsActivity::toggleCurrentSetting() {
                                  SETTINGS.saveToFile();
                                  rebuildSettingsLists();
                                });
-        break;
-      case SettingAction::KeyboardLayouts:
-        if (auto activity = makeUniqueNoThrow<KeyboardLayoutsActivity>(renderer, mappedInput)) {
-          startActivityForResult(std::move(activity), nullptr);
-        } else {
-          LOG_ERR("SETTINGS", "OOM: KeyboardLayoutsActivity");
-        }
         break;
       case SettingAction::About:
         if (auto activity = makeUniqueNoThrow<AboutActivity>(renderer, mappedInput)) {
