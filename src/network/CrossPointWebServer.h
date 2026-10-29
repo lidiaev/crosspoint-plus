@@ -131,10 +131,6 @@ class CrossPointWebServer {
     FontUploadState() { buffer.resize(BUFFER_SIZE); }
   } fontUpload;
 
-  // OPDS server handlers
-  void handleGetOpdsServers() const;
-  void handlePostOpdsServer();
-  void handleDeleteOpdsServer();
 
   // Wi-Fi credential handlers
   void handleGetWifiNetworks() const;

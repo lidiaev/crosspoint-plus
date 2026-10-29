@@ -18,7 +18,6 @@ enum class SettingAction {
   CustomiseStatusBar,
   ClockSettings,
   KOReaderSync,
-  OPDSBrowser,
   Network,
   ClearCache,
   CheckForUpdates,
@@ -215,7 +214,6 @@ class SettingsActivity final : public UiTabListActivity {
 
   static std::string settingValueText(const SettingInfo& setting);
   void selectCategory(int categoryIndex);
-  void applyUiSettingChange(uint8_t CrossPointSettings::* valuePtr);
 
   void enterCategory(int categoryIndex);
   void toggleCurrentSetting();
