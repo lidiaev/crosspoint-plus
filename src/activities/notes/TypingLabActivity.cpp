@@ -563,6 +563,7 @@ void TypingLabActivity::drawKeyboard(const int16_t pressed) {
   const bool en = layoutId == fui::KeyboardLayoutId::QwertyEn;
 
   interactions.beginPublishCycle();
+  interactions.clear();  // the building generation still holds the frame before last
   for (uint8_t row = 0; row < layout.rowCount; ++row) {
     const fui::KeyboardRow& kr = layout.rows[row];
     int units = kr.insetUnits * 2;
