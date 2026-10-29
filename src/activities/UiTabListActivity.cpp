@@ -100,7 +100,9 @@ void UiTabListActivity::buildTabBar(UiScreen& screen) {
   // (slot minus a 4px frame, 8px clearance above the divider) with
   // body-size labels; zero horizontal contentInset disables the tabBar's
   // label-width shrink.
-  const bool tabsFocused = ringPos() == 0;
+  // Touch boards have no tab focus: the active tab is a solid pill, the band plain.
+  const bool touch = mappedInput.hasTouch();
+  const bool tabsFocused = !touch && ringPos() == 0;
   if (metrics.tabPillFullSlot) {
     tabProps.text = screen.theme().bodyText;
     tabProps.tabInset = fui::Insets{4, 4, 7, 4};
@@ -137,7 +139,7 @@ void UiTabListActivity::buildTabBar(UiScreen& screen) {
   fui::StyleSet tabStyles;
   tabStyles.explicitlySet = true;
   tabStyles.normal.foreground = fui::Paint::solid(fui::Color::Black);
-  if (tabsFocused) {
+  if (tabsFocused || touch) {
     tabStyles.selected.background = fui::Paint::solid(fui::Color::Black);
     tabStyles.selected.foreground = fui::Paint::solid(fui::Color::White);
     tabStyles.selected.radius = screen.theme().listRowRadius;

@@ -120,6 +120,8 @@ void HomeActivity::onEnter() {
 
   const auto base = static_cast<int>(recentBooks.size());
   selectorIndex = initialMenuItem == HomeMenuItem::NONE ? 0 : base + menuItemToIndex(initialMenuItem);
+  // With touch nothing starts selected; a row highlights only while pressed.
+  if (mappedInput.hasTouch()) selectorIndex = -1;
 
   // Trigger first update
   requestUpdate();
@@ -173,7 +175,7 @@ void HomeActivity::loop() {
   const auto& metrics = UITheme::getInstance().getMetrics();
 
   auto activateSelection = [this] {
-    if (selectorIndex < recentBooks.size()) {
+    if (selectorIndex >= 0 && selectorIndex < static_cast<int>(recentBooks.size())) {
       onSelectBook(recentBooks[selectorIndex].path);
       return;
     }
