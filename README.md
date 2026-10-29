@@ -5,17 +5,24 @@ It keeps CrossPoint's reader and library and adds a fast Markdown **Notes** app 
 which is also the system keyboard.
 
 - Device: X4 Pro only (ESP32-S3, 8 MB PSRAM, GT911 touch, UC8279 panel). Use upstream CrossPoint for anything else.
-- Versions: `<upstream version>-plus.<build>`, for example `1.6.5-plus.15`. The built-in OTA updater checks this
+- Versions: `<upstream version>-plus.<build>`, for example `1.6.5-plus.23`. The built-in OTA updater checks this
   repository's [Releases](https://github.com/lidiaev/crosspoint-plus/releases).
 - Plan, decisions and design notes (in Russian): [docs/plus](docs/plus).
 
 ## What differs from CrossPoint
 
-- **Notes**: `/notes/*.md`, Markdown rendered in place, fast typing (~300 ms per key on e-ink), pin and delete,
-  search.
-- **Keyboard**: one iPhone-style RU/EN keyboard for notes and every text field.
+- **Notes**: `/notes/*.md` with Markdown rendered in place (headings, bold, italic, strikethrough, code, lists,
+  tasks with tap-to-check, quotes, rules), a format toolbar above the keyboard, search, pin and delete. Keys reach the
+  e-ink panel in about 300 ms.
+- **Keyboard**: one iPhone-style RU/EN keyboard for notes and every text field, with a contextual Return key and a
+  cursor you can place by tapping.
+- **Simpler system**: one theme (Lyra), Russian and English only, one built-in font (Ubuntu); books use the font you
+  install from the web Fonts page. The Library is a single Recent list; the quick panel holds the light sliders, night
+  mode and orientation.
 - **Removed**: the file browser on the home screen, OPDS, KOReader sync, Calibre Connect, USB drive mode, the font
-  downloader, keyboard layout picker and all themes except Lyra.
+  downloader and the extra themes.
+
+How the code is organised: [docs/plus/ARCHITECTURE.md](docs/plus/ARCHITECTURE.md).
 
 ## Build
 
