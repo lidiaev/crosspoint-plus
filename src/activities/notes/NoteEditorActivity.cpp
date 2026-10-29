@@ -314,7 +314,7 @@ void NoteEditorActivity::restyle() {
     const size_t nl = cursor == 0 ? std::string::npos : text.rfind('\n', cursor - 1);
     raw = nl == std::string::npos ? 0 : nl + 1;
   }
-  note_md::style(text, raw, attrs, &blocks);
+  note_md::style(text, raw, attrs);
   styleStale = false;
 }
 
@@ -615,9 +615,6 @@ void NoteEditorActivity::drawText() {
     const size_t end = l + 1 < lines ? lineStarts[l + 1] : text.size();
     const uint8_t font = lineFonts[l];
     const int lineHeight = renderer.getLineHeight(FONTS[font]);
-    // Fenced blocks get one frame (drawn below), not a frame per line.
-    const bool inBlock = std::any_of(blocks.begin(), blocks.end(),
-                                     [start](const note_md::Block& b) { return start >= b.start && start <= b.end; });
     int x = MARGIN;
     int runX = x;
     uint8_t runAttr = 0;
@@ -628,6 +625,12 @@ void NoteEditorActivity::drawText() {
       renderer.drawRoundedRect(codeX, y + 2, x - codeX, lineHeight - 3, 1, 4, true);
       codeX = -1;
     };
+    // The run measured as drawn (with kerning), so the caret sits on the glyph boundary.
+    const auto caretX = [&]() {
+      if (run.empty()) return x;
+      return runX + renderer.getTextAdvanceX(FONTS[font], run.c_str(),
+                                             static_cast<EpdFontFamily::Style>(runAttr & note_md::STYLE_MASK));
+    };
     const auto flush = [&]() {
       if (run.empty()) return;
       renderer.drawText(FONTS[font], runX, y, run.c_str(), true,
@@ -636,7 +639,7 @@ void NoteEditorActivity::drawText() {
       run.clear();
     };
     for (size_t i = start; i < end;) {
-      if (i == cursor) cursorX = x;
+      if (i == cursor) cursorX = caretX();
       uint32_t cp = 0;
       const size_t len = decode(text, i, cp);
       if (cp == '\n') break;
@@ -646,7 +649,7 @@ void NoteEditorActivity::drawText() {
         i += len;
         continue;
       }
-      if ((a & note_md::CODE) && codeX < 0 && !inBlock) codeX = x;
+      if ((a & note_md::CODE) && codeX < 0) codeX = x;
       if (!(a & note_md::CODE) && codeX >= 0) closeCode();
       if (note_md::glyphOf(a) != note_md::Glyph::None) {
         flush();
@@ -663,23 +666,11 @@ void NoteEditorActivity::drawText() {
       x += w;
       i += len;
     }
+    if (l == cursorLine && cursorX < 0) cursorX = caretX();  // the cursor ends the line
     flush();
     closeCode();
-    if (l == cursorLine) renderer.fillRect(cursorX >= 0 ? cursorX : x, y, 2, lineHeight);
+    if (l == cursorLine) renderer.fillRect(cursorX - 1, y, 2, lineHeight);  // centered on the boundary
     y += lineHeight;
-  }
-
-  // One frame per fenced block, from its opening fence line to its closing one.
-  for (const note_md::Block& b : blocks) {
-    const int first = lineOf(b.start);
-    const int lastLine = lineOf(b.end > b.start ? b.end - 1 : b.end);
-    if (lastLine < topLine || first >= last) continue;
-    int top = textTop();
-    for (int l = topLine; l < first; ++l) top += lineHeight(l);
-    int bottom = top;
-    for (int l = std::max(first, topLine); l <= std::min(lastLine, last - 1); ++l) bottom += lineHeight(l);
-    renderer.drawRoundedRect(MARGIN - 6, top + 2, renderer.getScreenWidth() - 2 * MARGIN + 12, bottom - top - 4, 1, 6,
-                             true);
   }
 }
 

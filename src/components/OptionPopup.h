@@ -56,13 +56,20 @@ class OptionPopup {
     headline = headlineStr ? headlineStr : "";
   }
 
-  // Context menu on an item: the actions alone, with no caption.
+  // Context menu on an item: its name as the caption (or none), then the actions.
   void showActions(const char* const* options, int optionCount, std::function<void(int)> onSelect) {
     show("", options, optionCount, 0, std::move(onSelect));
   }
+  void showActions(const char* itemName, const char* const* options, int optionCount,
+                   std::function<void(int)> onSelect) {
+    show(itemName ? itemName : "", options, optionCount, 0, std::move(onSelect));
+  }
   void showActions(const StrId* optionIds, int optionCount, std::function<void(int)> onSelect) {
+    showActions(nullptr, optionIds, optionCount, std::move(onSelect));
+  }
+  void showActions(const char* itemName, const StrId* optionIds, int optionCount, std::function<void(int)> onSelect) {
     show(optionIds[0], optionIds, optionCount, 0, std::move(onSelect));
-    title.clear();
+    title = itemName ? itemName : "";
   }
 
   void show(StrId titleId, const std::vector<std::string>& options, int currentIndex,

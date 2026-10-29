@@ -140,40 +140,19 @@ void paragraph(const std::string& text, const size_t start, const size_t end, st
 
 }  // namespace
 
-bool isFence(const std::string& text, size_t i, const size_t end) {
-  for (int n = 0; n < 3 && i < end && text[i] == ' '; ++n) ++i;
-  return i + 2 < end && text.compare(i, 3, "```") == 0;
-}
-
-void style(const std::string& text, const size_t rawStart, std::vector<uint8_t>& attrs, std::vector<Block>* blocks) {
+void style(const std::string& text, const size_t rawStart, std::vector<uint8_t>& attrs) {
   attrs.assign(text.size(), 0);
-  if (blocks) blocks->clear();
-  bool inFence = false;
-  size_t fenceStart = 0;
   size_t start = 0;
   while (start <= text.size()) {
     size_t end = text.find('\n', start);
     if (end == std::string::npos) end = text.size();
-    if (isFence(text, start, end)) {
-      apply(attrs, start, end, CODE | HIDDEN);
-      if (!inFence) {
-        fenceStart = start;
-      } else if (blocks) {
-        blocks->push_back(Block{fenceStart, end});
-      }
-      inFence = !inFence;
-    } else if (inFence) {
-      apply(attrs, start, end, CODE);
-    } else {
-      paragraph(text, start, end, attrs);
-    }
+    paragraph(text, start, end, attrs);
     if (start == rawStart) {
       // The paragraph being edited shows its markup; styles still apply.
       for (size_t i = start; i < end; ++i) attrs[i] &= static_cast<uint8_t>(~(HIDDEN | GLYPH_MASK));
     }
     start = end + 1;
   }
-  if (inFence && blocks) blocks->push_back(Block{fenceStart, text.size()});
 }
 
 int headingLevel(const std::string& text, const std::vector<uint8_t>& attrs, const size_t start) {

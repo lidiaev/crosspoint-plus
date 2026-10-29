@@ -25,17 +25,9 @@ enum class Glyph : uint8_t { None, Bullet, Box, BoxChecked, Quote, Rule, CodeEdg
 
 inline Glyph glyphOf(const uint8_t attr) { return static_cast<Glyph>((attr & GLYPH_MASK) >> GLYPH_SHIFT); }
 
-// A fenced code block: from the opening ``` line to the end of the closing one
-// (or the end of the text while it is still open).
-struct Block {
-  size_t start;
-  size_t end;
-};
-
 // Fills attrs with one entry per byte of text. The paragraph starting at
 // rawStart (the one being edited) keeps its markup visible; pass npos for none.
-// Fence lines are hidden and block lines are CODE.
-void style(const std::string& text, size_t rawStart, std::vector<uint8_t>& attrs, std::vector<Block>* blocks = nullptr);
+void style(const std::string& text, size_t rawStart, std::vector<uint8_t>& attrs);
 
 // 1-6 for a heading paragraph starting at `start`, 0 otherwise.
 int headingLevel(const std::string& text, const std::vector<uint8_t>& attrs, size_t start);

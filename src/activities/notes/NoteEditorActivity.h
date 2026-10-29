@@ -68,11 +68,10 @@ class NoteEditorActivity final : public Activity {
   bool dirty = false;
   TypingKeyboard keyboard;
   int16_t pressedKey = INT16_MIN;
-  std::vector<uint32_t> lineStarts;    // byte offset of each wrapped line
-  std::vector<uint8_t> lineFonts;      // font slot of each wrapped line (headings are larger)
-  std::vector<uint8_t> attrs;          // note_md attributes, one per byte of text
-  std::vector<note_md::Block> blocks;  // fenced code blocks
-  bool styleStale = true;              // text changed since attrs were computed
+  std::vector<uint32_t> lineStarts;  // byte offset of each wrapped line
+  std::vector<uint8_t> lineFonts;    // font slot of each wrapped line (headings are larger)
+  std::vector<uint8_t> attrs;        // note_md attributes, one per byte of text
+  bool styleStale = true;            // text changed since attrs were computed
   int topLine = 0;
   static constexpr uint32_t CACHED_CPS = 0x460;
   static constexpr int FONT_SLOTS = 3;  // body, heading 2, heading 1
