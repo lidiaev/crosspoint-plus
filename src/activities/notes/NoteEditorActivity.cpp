@@ -404,23 +404,16 @@ void NoteEditorActivity::deleteBackward() {
 }
 
 // Replaces the е just typed with ё when the key is held.
-void NoteEditorActivity::applyAlternate(const int16_t value) {
-  char base[4] = {};
-  char alt[4] = {};
-  const int16_t alternate = TypingKeyboard::alternateOf(value);
-  base[0] = static_cast<char>(0xC0 | (value >> 6));
-  base[1] = static_cast<char>(0x80 | (value & 0x3F));
-  alt[0] = static_cast<char>(0xC0 | (alternate >> 6));
-  alt[1] = static_cast<char>(0x80 | (alternate & 0x3F));
-  if (cursor < 2 || text.compare(cursor - 2, 2, base) != 0) return;
-  text.replace(cursor - 2, 2, alt);
+void NoteEditorActivity::applyAlternate(const int16_t) {
+  if (!TypingKeyboard::replaceWithAlternate(text, cursor)) return;
   dirty = true;
   styleStale = true;
 }
 
 void NoteEditorActivity::applyKey(const int16_t value, const uint32_t downMs, bool& layoutChanged) {
   char out[4] = {};
-  switch (keyboard.press(value, downMs, out)) {
+  const TypingKeyboard::Action action = keyboard.press(value, downMs, out);
+  switch (action) {
     case TypingKeyboard::Action::Insert:
       // Double space after a word ends the sentence.
       if (out[0] == ' ' && cursor >= 2 && text[cursor - 1] == ' ' && text[cursor - 2] != ' ' &&
@@ -441,7 +434,11 @@ void NoteEditorActivity::applyKey(const int16_t value, const uint32_t downMs, bo
     case TypingKeyboard::Action::None:
       break;
   }
-  if (keyboard.autoCapitalize(text, cursor)) layoutChanged = true;
+  // Only edits move the sentence start; Shift and layer keys keep the reader's choice.
+  if (action == TypingKeyboard::Action::Insert || action == TypingKeyboard::Action::Backspace ||
+      action == TypingKeyboard::Action::Enter) {
+    if (keyboard.autoCapitalize(text, cursor)) layoutChanged = true;
+  }
 }
 
 // Enter continues a list; on an empty item it ends the list instead.

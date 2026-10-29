@@ -35,6 +35,10 @@ class TypingKeyboard {
   bool keyAt(int x, int y, int16_t& value) const;
   // The character a long press on this key types instead (е → ё), or 0.
   static int16_t alternateOf(int16_t value);
+  // Turns the two-byte character ending at `end` into its alternate (е → ё).
+  static bool replaceWithAlternate(std::string& text, size_t end);
+  static uint16_t lowerOf(uint16_t cp);
+  static uint16_t upperOf(uint16_t cp);
 
  private:
   static constexpr uint8_t ROWS = 4;

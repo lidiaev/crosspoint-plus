@@ -472,6 +472,8 @@ void walk(WalkState& st, const std::string& path, const int depth) {
     if (st.nameBuf[0] == '\0' || isHiddenOrSidecar(st.nameBuf)) continue;
     const std::string name(st.nameBuf);
 
+    // Notes are Markdown too, but they are not books.
+    if (isDir && joinLibraryPath(path, name) == "/notes") continue;
     if (isDir) {
       const size_t resumePosition = dir.position();
       dir.close();

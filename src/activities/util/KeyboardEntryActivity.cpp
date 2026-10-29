@@ -191,11 +191,7 @@ void KeyboardEntryActivity::handleEvent(const Event& event) {
     }
     case EventType::Alternate: {
       // Replaces the е just typed with ё.
-      const int16_t alt = TypingKeyboard::alternateOf(event.value);
-      const char base[3] = {static_cast<char>(0xC0 | (event.value >> 6)),
-                            static_cast<char>(0x80 | (event.value & 0x3F)), '\0'};
-      const char repl[3] = {static_cast<char>(0xC0 | (alt >> 6)), static_cast<char>(0x80 | (alt & 0x3F)), '\0'};
-      if (text.size() >= 2 && text.compare(text.size() - 2, 2, base) == 0) text.replace(text.size() - 2, 2, repl);
+      TypingKeyboard::replaceWithAlternate(text, text.size());
       break;
     }
     case EventType::TogglePassword:

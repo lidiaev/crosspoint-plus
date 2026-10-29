@@ -159,15 +159,19 @@ void TypingKeyboard::build() {
 TypingKeyboard::Action TypingKeyboard::press(const int16_t value, const uint32_t downMs, char out[4]) {
   switch (value) {
     case fui::QWERTY_KEY_SHIFT:
+      // Double tap locks capitals whatever the first tap did; a tap releases the lock.
       if (capsLock) {
         capsLock = false;
         shifted = false;
-      } else if (shifted && downMs - lastShiftAt < DOUBLE_TAP_MS) {
+        lastShiftAt = 0;
+      } else if (lastShiftAt != 0 && downMs - lastShiftAt < DOUBLE_TAP_MS) {
         capsLock = true;
+        shifted = true;
+        lastShiftAt = 0;
       } else {
         shifted = !shifted;
+        lastShiftAt = downMs;
       }
-      lastShiftAt = downMs;
       build();
       return Action::LayoutChanged;
     case fui::QWERTY_KEY_MODE:
@@ -193,15 +197,20 @@ TypingKeyboard::Action TypingKeyboard::press(const int16_t value, const uint32_t
     case fui::QWERTY_KEY_SPACE:
       encodeUtf8(' ', out);
       return Action::Insert;
-    default:
+    default: {
       if (value < 0x20) return Action::None;
-      // The id is the character the key showed when pressed, even if the layer changed since.
-      encodeUtf8(static_cast<uint16_t>(value), out);
-      if (shifted && !capsLock && !symbols) {
+      // The id is the character the key showed when pressed, even if the layer
+      // changed since. Its case is decided now: a key tapped before the frame
+      // that dropped Shift still reached the screen must not stay capital.
+      const uint16_t cp = static_cast<uint16_t>(value);
+      const bool letter = lowerOf(cp) != upperOf(cp);
+      encodeUtf8(letter ? (shifted || capsLock ? upperOf(cp) : lowerOf(cp)) : cp, out);
+      if (letter && shifted && !capsLock) {
         shifted = false;
         build();
       }
       return Action::Insert;
+    }
   }
 }
 
@@ -250,7 +259,9 @@ void TypingKeyboard::draw(const GfxRenderer& renderer, const int16_t pressed) {
     for (uint8_t c = 0; c < kr.count; ++c) {
       const fui::KeyboardKey& key = kr.keys[c];
       const int w = unitW * (key.widthUnits ? key.widthUnits : 1);
-      const bool down = key.value == pressed;
+      const bool down = key.value == pressed ||
+                        (key.value > 0 && pressed > 0 &&
+                         lowerOf(static_cast<uint16_t>(key.value)) == lowerOf(static_cast<uint16_t>(pressed)));
       if (down) renderer.fillRoundedRect(x, y, w, rowHeight, RADIUS, Color::Black);
       const bool ink = !down;
       const int cx = x + w / 2;
@@ -312,6 +323,32 @@ bool TypingKeyboard::keyAt(const int x, const int y, int16_t& value) const {
     }
   }
   return best <= MAX_DISTANCE * MAX_DISTANCE;
+}
+
+uint16_t TypingKeyboard::lowerOf(const uint16_t cp) {
+  if (cp >= 'A' && cp <= 'Z') return cp + ('a' - 'A');
+  if (cp >= 0x0410 && cp <= 0x042F) return cp + 0x20;  // А-Я
+  if (cp == 0x0401) return 0x0451;                     // Ё
+  return cp;
+}
+
+uint16_t TypingKeyboard::upperOf(const uint16_t cp) {
+  if (cp >= 'a' && cp <= 'z') return cp - ('a' - 'A');
+  if (cp >= 0x0430 && cp <= 0x044F) return cp - 0x20;  // а-я
+  if (cp == 0x0451) return 0x0401;                     // ё
+  return cp;
+}
+
+bool TypingKeyboard::replaceWithAlternate(std::string& text, const size_t end) {
+  if (end < 2 || end > text.size()) return false;
+  const auto b0 = static_cast<uint8_t>(text[end - 2]);
+  const auto b1 = static_cast<uint8_t>(text[end - 1]);
+  if ((b0 & 0xE0) != 0xC0 || (b1 & 0xC0) != 0x80) return false;
+  const int16_t alt = alternateOf(static_cast<int16_t>(((b0 & 0x1F) << 6) | (b1 & 0x3F)));
+  if (alt == 0) return false;
+  text[end - 2] = static_cast<char>(0xC0 | (alt >> 6));
+  text[end - 1] = static_cast<char>(0x80 | (alt & 0x3F));
+  return true;
 }
 
 int16_t TypingKeyboard::alternateOf(const int16_t value) {
