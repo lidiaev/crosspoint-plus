@@ -1,9 +1,9 @@
 # Quick-settings panel. Regenerate from the repository root with:
 #   python3 freeink-sdk/libs/assets/Icons/tools/gen_icons.py \
-#     --manifest src/components/icons/panelIcons.manifest --svgdir <dir> --sizes 32 \
+#     --manifest src/components/icons/panelIcons.manifest --svgdir <dir> --sizes 40 \
 #     --out src/components/icons/panelIcons.h
-# <dir> holds Lucide moon.svg and smartphone.svg rotated by 0/90/180/270 degrees
-# (wrapped in <g transform="rotate(deg 12 12)">) under the orient-* names.
+# <dir> holds Lucide moon.svg and Lucide smartphone.svg with its home dot enlarged to a
+# filled r=1.8 circle, rotated by 0/90/180/270 degrees under the orient-* names.
 night-mode = moon
 orient-portrait = orient-portrait
 orient-landscape-cw = orient-landscape-cw

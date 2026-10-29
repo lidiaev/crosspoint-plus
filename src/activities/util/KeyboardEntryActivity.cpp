@@ -321,7 +321,7 @@ void KeyboardEntryActivity::drawField() {
 
   if (inputType == InputType::Password) {
     const freeink::Icon& icon = passwordVisible ? icon_hide_password_32 : icon_show_password_32;
-    renderer.drawIcon(icon.bits, width - MARGIN - ICON, top + (lineHeight - ICON) / 2, ICON);
+    renderer.drawIconUpright(icon.bits, width - MARGIN - ICON, top + (lineHeight - ICON) / 2, ICON, ICON);
   }
   fieldBottom = y + MARGIN / 2;
   renderer.drawLine(MARGIN, fieldBottom, width - MARGIN, fieldBottom);

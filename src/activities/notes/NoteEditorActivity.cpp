@@ -729,7 +729,7 @@ void NoteEditorActivity::drawToolbar() const {
   for (int i = 0; i < FORMAT_COUNT; ++i) {
     const freeink::Icon& icon = *ICONS[i];
     const int cx = width * (2 * i + 1) / (2 * FORMAT_COUNT);
-    renderer.drawIcon(icon.bits, cx - icon.w / 2, top + (TOOLBAR_HEIGHT - icon.h) / 2, icon.w);
+    renderer.drawIconUpright(icon.bits, cx - icon.w / 2, top + (TOOLBAR_HEIGHT - icon.h) / 2, icon.w, icon.h);
   }
 }
 

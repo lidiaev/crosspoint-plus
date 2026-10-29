@@ -304,7 +304,10 @@ class GfxRenderer {
   void fillRoundedRect(int x, int y, int width, int height, int cornerRadius, bool roundTopLeft, bool roundTopRight,
                        bool roundBottomLeft, bool roundBottomRight, Color color) const;
   void drawImage(const uint8_t bitmap[], int x, int y, int width, int height) const;
-  void drawIcon(const uint8_t bitmap[], int x, int y, int size, bool black = true) const;
+  void drawIcon(const uint8_t bitmap[], int x, int y, int size) const;
+  // A freeink::Icon bitmap (gen_icons.py: rows top to bottom, MSB first, 0 = ink)
+  // drawn upright in logical coordinates; white for icons on a black fill.
+  void drawIconUpright(const uint8_t bits[], int x, int y, int width, int height, bool black = true) const;
   bool drawBitmap(const Bitmap& bitmap, int x, int y, int maxWidth, int maxHeight, float cropX = 0, float cropY = 0,
                   bool whiteAsTransparent = false) const;
   bool drawBitmap1Bit(const Bitmap& bitmap, int x, int y, int maxWidth, int maxHeight) const;

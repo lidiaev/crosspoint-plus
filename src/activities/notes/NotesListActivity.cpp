@@ -7,6 +7,9 @@
 #include <Logging.h>
 #include <Memory.h>
 
+#include <algorithm>
+#include <cstdio>
+
 #include "NoteEditorActivity.h"
 #include "activities/ActivityManager.h"
 #include "activities/RenderLock.h"
@@ -17,6 +20,7 @@
 #include "components/icons/headerIcons.h"
 #include "components/icons/notesIcons.h"
 #include "components/icons/search32.h"
+#include "fontIds.h"
 
 namespace fui = freeink::ui;
 
@@ -140,10 +144,13 @@ void NotesListActivity::buildScreen(UiScreen& screen) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   buildHeader(screen);
   const Rect safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
-  screen.setContentMarginFromScreen(fui::Insets{
-      static_cast<int16_t>(safe.y + metrics.topPadding + metrics.headerHeight),
-      static_cast<int16_t>(renderer.getScreenWidth() - (safe.x + safe.width)),
-      static_cast<int16_t>(renderer.getScreenHeight() - (safe.y + safe.height)), static_cast<int16_t>(safe.x)});
+  // The position readout owns the line above the hints; rows must not overlap it.
+  const int readoutReserved = renderer.getLineHeight(SMALL_FONT_ID) + metrics.verticalSpacing;
+  screen.setContentMarginFromScreen(
+      fui::Insets{static_cast<int16_t>(safe.y + metrics.topPadding + metrics.headerHeight),
+                  static_cast<int16_t>(renderer.getScreenWidth() - (safe.x + safe.width)),
+                  static_cast<int16_t>(renderer.getScreenHeight() - (safe.y + safe.height) + readoutReserved),
+                  static_cast<int16_t>(safe.x)});
   screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
   if (rows.empty()) {
     screen.centeredText(query.empty() ? tr(STR_NO_NOTES) : tr(STR_NO_NOTES_FOUND));
@@ -235,4 +242,16 @@ bool NotesListActivity::handleCustomInput() {
 void NotesListActivity::render(RenderLock&& lock) {
   if (optionPopup.processRender(renderer, mappedInput)) return;
   UiListActivity::render(std::move(lock));
+}
+
+// "3/12" at the bottom right, as in the Library: the selected note out of all shown.
+void NotesListActivity::drawFooter() {
+  const int count = listCount();
+  if (count <= 0) return;
+  char buf[48];
+  snprintf(buf, sizeof(buf), tr(STR_NOTES_POSITION), std::clamp(nav.selected.load(), 0, count - 1) + 1, count);
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const int x = renderer.getScreenWidth() - renderer.getTextWidth(SMALL_FONT_ID, buf) - metrics.contentSidePadding;
+  const int y = renderer.getScreenHeight() - metrics.buttonHintsHeight - renderer.getLineHeight(SMALL_FONT_ID);
+  renderer.drawText(SMALL_FONT_ID, x, y, buf, true);
 }

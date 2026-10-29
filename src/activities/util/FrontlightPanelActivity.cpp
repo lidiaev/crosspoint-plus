@@ -348,10 +348,10 @@ void FrontlightPanelActivity::buildPanelScreen(UiScreen& screen) {
   if (mappedInput.hasTouch()) {
     // Night mode, then the four orientations as pictures of the device held
     // that way; the active ones draw filled.
-    static const freeink::Icon* const kOrientIcons[4] = {&icon_orient_portrait_32, &icon_orient_landscape_cw_32,
-                                                         &icon_orient_inverted_32, &icon_orient_landscape_ccw_32};
+    static const freeink::Icon* const kOrientIcons[4] = {&icon_orient_portrait_40, &icon_orient_landscape_cw_40,
+                                                         &icon_orient_inverted_40, &icon_orient_landscape_ccw_40};
     gridItems[0].label = nullptr;
-    gridItems[0].icon = fui::bitmapFromIcon(icon_night_mode_32);
+    gridItems[0].icon = fui::bitmapFromIcon(icon_night_mode_40);
     gridItems[0].value = TILE_NIGHT;
     gridItems[0].state = SETTINGS.screenInverted ? fui::StateChecked : fui::StateNormal;
     for (int o = 0; o < 4; ++o) {
@@ -365,7 +365,7 @@ void FrontlightPanelActivity::buildPanelScreen(UiScreen& screen) {
     gridProps.count = static_cast<uint16_t>(kTileCount);
     gridProps.action = ACTION_TILE;
     gridProps.columns = kTileCols;
-    gridProps.iconSize = 32;
+    gridProps.iconSize = 40;
     gridProps.tileHeight = kTileHeight;
     gridProps.gap = kTileGap;
     screen.tileGrid(gridProps);

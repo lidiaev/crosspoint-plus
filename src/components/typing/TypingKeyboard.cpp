@@ -62,7 +62,7 @@ void encodeUtf8(const uint16_t cp, char out[4]) {
 
 // Control keys use Lucide icons, the same set as the rest of the UI.
 void drawKeyIcon(const GfxRenderer& r, const freeink::Icon& icon, int cx, int cy, bool ink) {
-  r.drawIcon(icon.bits, cx - icon.w / 2, cy - icon.h / 2, icon.w, ink);
+  r.drawIconUpright(icon.bits, cx - icon.w / 2, cy - icon.h / 2, icon.w, icon.h, ink);
 }
 
 void drawLabel(const GfxRenderer& r, int font, int cx, int cy, const char* label, bool ink) {

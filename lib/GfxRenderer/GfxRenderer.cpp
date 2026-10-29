@@ -1374,7 +1374,7 @@ void GfxRenderer::drawImage(const uint8_t bitmap[], const int x, const int y, co
   display.drawImage(bitmap, rotatedX, rotatedY, width, height);
 }
 
-void GfxRenderer::drawIcon(const uint8_t bitmap[], const int x, const int y, const int size, const bool black) const {
+void GfxRenderer::drawIcon(const uint8_t bitmap[], const int x, const int y, const int size) const {
   // Plot the icon pixel-by-pixel through drawPixel (which applies the orientation
   // transform) instead of the byte-aligned framebuffer blit. The blit snaps the
   // icon's position to 8px (one byte) along the rotated axis, which prevents it
@@ -1388,8 +1388,18 @@ void GfxRenderer::drawIcon(const uint8_t bitmap[], const int x, const int y, con
       const uint8_t byte = bitmap[row * rowBytes + (col >> 3)];
       const bool ink = ((byte >> (7 - (col & 7))) & 1) == 0;
       if (ink) {
-        drawPixel(x + (size - 1 - row), y + col, black);
+        drawPixel(x + (size - 1 - row), y + col, true);
       }
+    }
+  }
+}
+
+void GfxRenderer::drawIconUpright(const uint8_t bits[], const int x, const int y, const int width, const int height,
+                                  const bool black) const {
+  const int rowBytes = (width + 7) / 8;
+  for (int row = 0; row < height; row++) {
+    for (int col = 0; col < width; col++) {
+      if (((bits[row * rowBytes + (col >> 3)] >> (7 - (col & 7))) & 1) == 0) drawPixel(x + col, y + row, black);
     }
   }
 }

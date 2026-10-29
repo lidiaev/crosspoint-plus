@@ -26,7 +26,7 @@ class NotesListActivity final : public UiListActivity {
   const char* headerTitle() const override;
   void onBackButton() override;
   void drawChrome() override {}
-  void drawFooter() override {}
+  void drawFooter() override;
   void onRowLongPress(int index) override;
   bool handleCustomInput() override;
 
