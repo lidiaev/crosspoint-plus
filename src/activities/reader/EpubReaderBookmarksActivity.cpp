@@ -184,7 +184,7 @@ void EpubReaderBookmarksActivity::showBookmarkActions() {
     return;
   }
   const StrId options[] = {StrId::STR_OPEN, StrId::STR_RENAME, StrId::STR_DELETE};
-  confirmPopup.show(StrId::STR_BOOKMARKS, options, 3, 0, [this](const int idx) {
+  confirmPopup.showActions(options, 3, [this](const int idx) {
     if (idx == 0) {
       openSelectedBookmark();
     } else if (idx == 1) {

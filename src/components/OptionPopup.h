@@ -56,6 +56,15 @@ class OptionPopup {
     headline = headlineStr ? headlineStr : "";
   }
 
+  // Context menu on an item: the actions alone, with no caption.
+  void showActions(const char* const* options, int optionCount, std::function<void(int)> onSelect) {
+    show("", options, optionCount, 0, std::move(onSelect));
+  }
+  void showActions(const StrId* optionIds, int optionCount, std::function<void(int)> onSelect) {
+    show(optionIds[0], optionIds, optionCount, 0, std::move(onSelect));
+    title.clear();
+  }
+
   void show(StrId titleId, const std::vector<std::string>& options, int currentIndex,
             std::function<void(int)> onSelect) {
     title = I18N.get(titleId);
@@ -179,7 +188,7 @@ class OptionPopup {
     }
 
     fui::OptionDialogProps props;
-    props.title = title.c_str();
+    props.title = title.empty() ? nullptr : title.c_str();
     props.headline = headline.empty() ? nullptr : headline.c_str();
     props.options = options;
     props.optionCount = count;

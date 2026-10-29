@@ -381,16 +381,15 @@ void FileBrowserActivity::showEntryActions() {
   const bool isDirectory = files[nav.selected].back() == '/';
   static constexpr StrId FILE_OPTIONS[] = {StrId::STR_OPEN, StrId::STR_DELETE, StrId::STR_RENAME};
   static constexpr StrId DIRECTORY_OPTIONS[] = {StrId::STR_OPEN, StrId::STR_DELETE};
-  optionPopup.show(StrId::STR_FILENAME, isDirectory ? DIRECTORY_OPTIONS : FILE_OPTIONS, isDirectory ? 2 : 3, 0,
-                   [this](const int index) {
-                     if (index == 0) {
-                       activateSelected();
-                     } else if (index == 1) {
-                       deleteSelected();
-                     } else if (index == 2) {
-                       startRename();
-                     }
-                   });
+  optionPopup.showActions(isDirectory ? DIRECTORY_OPTIONS : FILE_OPTIONS, isDirectory ? 2 : 3, [this](const int index) {
+    if (index == 0) {
+      activateSelected();
+    } else if (index == 1) {
+      deleteSelected();
+    } else if (index == 2) {
+      startRename();
+    }
+  });
   requestUpdate();
 }
 
