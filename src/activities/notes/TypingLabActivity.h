@@ -24,6 +24,7 @@ class TypingLabActivity final : public Activity {
       : Activity("TypingLab", renderer, mappedInput) {}
 
   void onEnter() override;
+  void onExit() override;
   void loop() override;
   void render(RenderLock&&) override;
   bool preventAutoSleep() override { return true; }
@@ -66,7 +67,8 @@ class TypingLabActivity final : public Activity {
   uint32_t keyCount = 0;
   uint8_t lastBatch = 0;
 
-  enum class Control : uint8_t { None, Back, Mode, Clear };
+  enum class Control : uint8_t { None, Back, Mode, Clear, Pll };
+  std::atomic<uint8_t> pllIndex{0};
 
   void enqueue(int16_t value, uint32_t downMs);
   Control controlAt(int x, int y) const;
