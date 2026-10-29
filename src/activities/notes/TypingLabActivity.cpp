@@ -23,8 +23,6 @@ namespace {
 constexpr fui::ActionId ACTION_KEY = 1;
 constexpr int MARGIN = 12;
 constexpr uint32_t CLEANUP_IDLE_MS = 1200;
-constexpr uint32_t BLINK_PERIOD_MS = 600;
-constexpr uint8_t BLINK_TOGGLES = 8;  // even: the cursor ends visible
 
 // Short-LUT frames {to black, to white}; {0, 0} = factory OTP waveform.
 struct LutPair {
@@ -88,13 +86,12 @@ bool TypingLabActivity::keyAt(const int x, const int y, int16_t& value) const {
 
 int TypingLabActivity::barHeight() const { return renderer.getLineHeight(UI_12_FONT_ID) + 2 * MARGIN; }
 
-// Four equal tap zones across the top bar.
+// Three equal tap zones across the top bar.
 TypingLabActivity::Control TypingLabActivity::controlAt(const int x, const int y) const {
   if (y < 0 || y >= barHeight()) return Control::None;
-  const int quarter = renderer.getScreenWidth() / 4;
-  if (x < quarter) return Control::Back;
-  if (x < 2 * quarter) return Control::Lut;
-  if (x < 3 * quarter) return Control::Blink;
+  const int third = renderer.getScreenWidth() / 3;
+  if (x < third) return Control::Back;
+  if (x < 2 * third) return Control::Lut;
   return Control::Clear;
 }
 
@@ -107,22 +104,10 @@ void TypingLabActivity::loop() {
   const uint32_t now = millis();
   const bool queueEmpty = queueTail.load() == queueHead.load();
 
-  // Idle work: one factory-waveform repaint, then an optional short cursor blink.
+  // Idle work: one factory-waveform repaint clears short-LUT residue.
   const uint32_t keyFrameAt = lastKeyFrameAt.load();
   if (keyFrameAt != 0 && now - keyFrameAt > CLEANUP_IDLE_MS && queueEmpty && !cleanupFrame.load()) {
     cleanupFrame = true;
-    requestUpdate();
-  }
-  const uint32_t cleanedAt = cleanupDoneAt.load();
-  if (blinkEnabled.load() && cleanedAt != 0 && cleanedAt != blinkStartedFor) {
-    blinkStartedFor = cleanedAt;
-    blinkUntil = BLINK_TOGGLES;
-    nextBlinkAt = cleanedAt + BLINK_PERIOD_MS;
-  }
-  if (blinkUntil > 0 && keyFrameAt == 0 && queueEmpty && now >= nextBlinkAt && !blinkFrame.load()) {
-    blinkFrame = true;
-    --blinkUntil;
-    nextBlinkAt = now + BLINK_PERIOD_MS;
     requestUpdate();
   }
 
@@ -132,7 +117,7 @@ void TypingLabActivity::loop() {
   const bool held = mappedInput.isScreenTouchHeld(tx, ty);
   if (!held) {
     if (contactActive) {
-      releaseFrame = true;  // drop the key outline as soon as the finger lifts
+      releaseFrame = true;  // restore the pressed key as soon as the finger lifts
       requestUpdate();
     }
     contactActive = false;
@@ -151,11 +136,6 @@ void TypingLabActivity::loop() {
       fullRedraw = true;
       requestUpdate();
       return;
-    case Control::Blink:
-      blinkEnabled = !blinkEnabled.load();
-      fullRedraw = true;
-      requestUpdate();
-      return;
     case Control::Clear:
       enqueue(CLEAR_TEXT, now);
       fullRedraw = true;
@@ -170,7 +150,6 @@ void TypingLabActivity::loop() {
     contactActive = false;
     return;
   }
-  blinkUntil = 0;
   enqueue(value, now);
   requestUpdate();
 }
@@ -232,7 +211,7 @@ bool TypingLabActivity::applyKey(const int16_t value) {
 
 void TypingLabActivity::drawBars() const {
   const int pageWidth = renderer.getScreenWidth();
-  const int quarter = pageWidth / 4;
+  const int third = pageWidth / 3;
   const int bar = barHeight();
   const LutPair& lut = LUTS[lutIndex.load()];
   char lutLabel[16];
@@ -241,11 +220,11 @@ void TypingLabActivity::drawBars() const {
   } else {
     snprintf(lutLabel, sizeof(lutLabel), "LUT otp");
   }
-  const char* labels[4] = {"< Back", lutLabel, blinkEnabled.load() ? "Blink on" : "Blink off", "Clear"};
-  for (int i = 0; i < 4; ++i) {
+  const char* labels[3] = {"< Back", lutLabel, "Clear"};
+  for (int i = 0; i < 3; ++i) {
     const int width = renderer.getTextWidth(UI_12_FONT_ID, labels[i]);
-    renderer.drawText(UI_12_FONT_ID, i * quarter + (quarter - width) / 2, MARGIN, labels[i]);
-    if (i > 0) renderer.drawLine(i * quarter, MARGIN / 2, i * quarter, bar - MARGIN / 2);
+    renderer.drawText(UI_12_FONT_ID, i * third + (third - width) / 2, MARGIN, labels[i]);
+    if (i > 0) renderer.drawLine(i * third, MARGIN / 2, i * third, bar - MARGIN / 2);
   }
   renderer.drawLine(0, bar - 1, pageWidth - 1, bar - 1);
 
@@ -318,9 +297,21 @@ void TypingLabActivity::drawText(const bool cursor) const {
   if (cursor) renderer.fillRect(cursorX + 1, y - lineHeight, 2, lineHeight);
 }
 
-void TypingLabActivity::drawKeyboard(const int16_t outline) {
+void TypingLabActivity::drawKeyboard(const int16_t pressed) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const fui::KeyboardLayout& layout = currentLayout();
+  int16_t selected = -1;
+  if (pressed != INT16_MIN) {
+    int16_t index = 0;
+    for (uint8_t r = 0; r < layout.rowCount && selected < 0; ++r) {
+      for (uint8_t c = 0; c < layout.rows[r].count; ++c, ++index) {
+        if (layout.rows[r].keys[c].value == pressed) {
+          selected = index;
+          break;
+        }
+      }
+    }
+  }
 
   interactions.beginPublishCycle();
   fui::GfxRendererTarget target(renderer);
@@ -335,24 +326,13 @@ void TypingLabActivity::drawKeyboard(const int16_t outline) {
   props.keyAction = ACTION_KEY;
   props.okLabel = "\xE2\x86\xB5";  // return arrow: Enter inserts a newline here
   props.inputMask = static_cast<uint16_t>(fui::InputTouch);
+  props.selectedIndex = selected;  // drawn inverted
   props.labelText.font = fui::GfxRendererTarget::FONT_BODY;
   props.altText.font = fui::GfxRendererTarget::FONT_SMALL;
   props.gap = static_cast<int16_t>(metrics.keyboardKeySpacing);
   props.padding = fui::Insets{0, 0, 0, 0};
   fui::keyboard(frame, keyboardRect(), props);
   interactions.publish();
-
-  if (outline == INT16_MIN) return;
-  // A thin frame instead of a fill: little ink to erase when the outline goes away.
-  const size_t count = interactions.publishedCount();
-  const fui::Interaction* items = interactions.publishedData();
-  for (size_t i = 0; i < count; ++i) {
-    if (items[i].action == ACTION_KEY && items[i].value == outline) {
-      const fui::Rect& r = items[i].rect;
-      renderer.drawRect(r.x + 2, r.y + 2, r.width - 4, r.height - 4, 2, true);
-      return;
-    }
-  }
 }
 
 void TypingLabActivity::render(RenderLock&&) {
@@ -365,7 +345,7 @@ void TypingLabActivity::render(RenderLock&&) {
     const PendingKey key = queue[tail];
     if (batch == 0) oldestDownMs = key.downMs;
     keyboardChanged |= applyKey(key.value);
-    outlinedKey = key.value == CLEAR_TEXT ? INT16_MIN : key.value;
+    pressedKey = key.value == CLEAR_TEXT ? INT16_MIN : key.value;
     ++batch;
     tail = (tail + 1) % QUEUE_SIZE;
   }
@@ -373,19 +353,17 @@ void TypingLabActivity::render(RenderLock&&) {
 
   const bool whole = fullRedraw.exchange(false);
   // A lift-off that races ahead of its key frame stays pending for the next frame.
-  const bool release = batch == 0 && releaseFrame.exchange(false) && outlinedKey != INT16_MIN;
+  const bool release = batch == 0 && releaseFrame.exchange(false) && pressedKey != INT16_MIN;
   const bool cleanup = cleanupFrame.exchange(false) && batch == 0;
-  const bool blink = blinkFrame.exchange(false) && batch == 0 && !cleanup;
-  if (release || cleanup) outlinedKey = INT16_MIN;
+  if (release || cleanup) pressedKey = INT16_MIN;
   if (batch > 0) cursorOn = false;  // a moving cursor leaves residue under a short LUT
   if (cleanup || whole) cursorOn = true;
-  if (blink) cursorOn = !cursorOn;
-  if (!whole && batch == 0 && !release && !cleanup && !blink) return;
+  if (!whole && batch == 0 && !release && !cleanup) return;
 
   renderer.clearScreen();
   drawBars();
   drawText(cursorOn);
-  drawKeyboard(outlinedKey);
+  drawKeyboard(pressedKey);
 
   const uint32_t drawDone = millis();
   if (whole) {
@@ -408,7 +386,6 @@ void TypingLabActivity::render(RenderLock&&) {
   }
   if (cleanup || whole) {
     lastKeyFrameAt = 0;
-    cleanupDoneAt = panelDone;
     if (cleanup) ++cleanupCount;
   }
   if (releaseFrame.load()) requestUpdate();

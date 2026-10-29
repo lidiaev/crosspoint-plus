@@ -9,9 +9,9 @@
 #include "activities/Activity.h"
 
 // Typing bench (lab builds only, CPX_TYPING_LAB). Keys commit on touch-down and
-// reach the panel with a short custom LUT; the cursor and key outline stay off
-// the black-to-white path while typing, and an idle factory-waveform repaint
-// clears short-LUT residue.
+// reach the panel with a short custom LUT; the pressed key is inverted until
+// lift-off, the cursor is hidden while typing, and an idle factory-waveform
+// repaint clears short-LUT residue.
 class TypingLabActivity final : public Activity {
  public:
   TypingLabActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
@@ -25,7 +25,7 @@ class TypingLabActivity final : public Activity {
   bool skipLoopDelay() override { return true; }
 
  private:
-  enum class Control : uint8_t { None, Back, Lut, Blink, Clear };
+  enum class Control : uint8_t { None, Back, Lut, Clear };
 
   struct PendingKey {
     int16_t value;
@@ -41,15 +41,9 @@ class TypingLabActivity final : public Activity {
   std::atomic<bool> fullRedraw{true};
   std::atomic<bool> releaseFrame{false};
   std::atomic<bool> cleanupFrame{false};
-  std::atomic<bool> blinkFrame{false};
-  std::atomic<bool> blinkEnabled{false};
-  std::atomic<uint8_t> lutIndex{1};
+  std::atomic<uint8_t> lutIndex{2};         // 8/16
   std::atomic<uint32_t> lastKeyFrameAt{0};  // 0 = idle cleanup already done
-  std::atomic<uint32_t> cleanupDoneAt{0};
   bool contactActive = false;
-  uint32_t nextBlinkAt = 0;
-  uint32_t blinkUntil = 0;
-  uint32_t blinkStartedFor = 0;
 
   // Render task state.
   std::string text;
@@ -58,7 +52,7 @@ class TypingLabActivity final : public Activity {
   bool shifted = false;
   bool symbols = false;
   bool cursorOn = true;
-  int16_t outlinedKey = INT16_MIN;
+  int16_t pressedKey = INT16_MIN;
   freeink::ui::InteractionBuffer<56> interactions;
   uint32_t lastLatencyMs = 0;
   uint32_t lastPanelMs = 0;
@@ -77,5 +71,5 @@ class TypingLabActivity final : public Activity {
   void applyLut() const;
   void drawBars() const;
   void drawText(bool cursor) const;
-  void drawKeyboard(int16_t outline);
+  void drawKeyboard(int16_t pressed);
 };
