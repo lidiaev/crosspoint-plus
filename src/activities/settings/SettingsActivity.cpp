@@ -92,7 +92,7 @@ void SettingsActivity::rebuildSettingsLists() {
     controlsSettings.insert(controlsSettings.begin(),
                             SettingInfo::Action(StrId::STR_HOME_BUTTON, SettingAction::HomeButton));
   }
-  controlsSettings.insert(controlsSettings.begin(), SettingInfo::Action(StrId::STR_KEYBOARD, SettingAction::Keyboard));
+  systemSettings.push_back(SettingInfo::Action(StrId::STR_KEYBOARD, SettingAction::Keyboard));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_WIFI_NETWORKS, SettingAction::Network));
   // Clock configuration only exists where the RTC probe found hardware; on
   // clockless boards there is nothing to set.

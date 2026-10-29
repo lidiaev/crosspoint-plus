@@ -358,10 +358,9 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   // Restore the saved on/off state after a normal boot or wake. Brightness and
   // warmth are always remembered even when this is disabled.
   uint8_t frontlightRestoreOnWake = 1;
-  // Keyboard and notes (Settings > Controls > Keyboard).
+  // Keyboard (Settings > System > Keyboard).
   uint8_t keyboardAutoCapitalize = 1;
   uint8_t keyboardDoubleSpacePeriod = 1;
-  uint8_t notesCheckedToBottom = 0;
   // Language setting (Language enum index, default 0 = EN)
   uint8_t language = 0;
   // Quick Resume: keep current content visible with moon icon instead of showing a static sleep screen.

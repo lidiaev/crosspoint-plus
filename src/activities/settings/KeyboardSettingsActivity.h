@@ -5,14 +5,14 @@
 #include "CrossPointSettings.h"
 #include "activities/UiListActivity.h"
 
-// Settings > Controls > Keyboard: on/off switches for the notes keyboard.
+// Settings > System > Keyboard: on/off switches for the notes keyboard.
 class KeyboardSettingsActivity final : public UiListActivity {
  public:
   KeyboardSettingsActivity(GfxRenderer& renderer, MappedInputManager& input)
       : UiListActivity("KeyboardSettings", renderer, input) {}
 
  private:
-  static constexpr int ROW_COUNT = 3;
+  static constexpr int ROW_COUNT = 2;
 
   freeink::ui::ListItem rows[ROW_COUNT]{};
 

@@ -337,8 +337,6 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
                             "keyboardAutoCapitalize"),
         SettingInfo::Toggle(StrId::STR_KB_DOUBLE_SPACE_PERIOD, &CrossPointSettings::keyboardDoubleSpacePeriod,
                             "keyboardDoubleSpacePeriod"),
-        SettingInfo::Toggle(StrId::STR_NOTES_CHECKED_TO_BOTTOM, &CrossPointSettings::notesCheckedToBottom,
-                            "notesCheckedToBottom"),
         // Erased below unless the board is an X4 Pro.
         SettingInfo::Toggle(StrId::STR_DBL_CLICK_PWR_LIGHT, &CrossPointSettings::doubleClickPwrLight,
                             "doubleClickPwrLight", StrId::STR_CAT_CONTROLS),

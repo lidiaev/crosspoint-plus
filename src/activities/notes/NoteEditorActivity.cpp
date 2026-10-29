@@ -516,73 +516,6 @@ bool NoteEditorActivity::autoCapitalize() {
   return SETTINGS.keyboardAutoCapitalize && keyboard.autoCapitalize(text, cursor);
 }
 
-namespace {
-bool isTaskLine(const std::string& line) {
-  size_t i = 0;
-  while (i < line.size() && line[i] == ' ') ++i;
-  return i + 4 < line.size() && (line[i] == '-' || line[i] == '*' || line[i] == '+') && line[i + 1] == ' ' &&
-         line[i + 2] == '[' && line[i + 4] == ']';
-}
-
-bool isDoneTask(const std::string& line) {
-  size_t i = 0;
-  while (i < line.size() && line[i] == ' ') ++i;
-  return line[i + 3] != ' ';
-}
-}  // namespace
-
-// With "checked items to bottom" on, a task that was just checked moves to the
-// end of its run of task lines, and an unchecked one moves up above the checked
-// ones, like Apple Notes. `at` is any offset inside the toggled line.
-void NoteEditorActivity::moveCheckedItem(const size_t at) {
-  const auto lineStart = [this](const size_t pos) {
-    const size_t nl = pos == 0 ? std::string::npos : text.rfind('\n', pos - 1);
-    return nl == std::string::npos ? size_t{0} : nl + 1;
-  };
-  const auto lineEnd = [this](const size_t pos) {
-    const size_t nl = text.find('\n', pos);
-    return nl == std::string::npos ? text.size() : nl;
-  };
-  const auto lineAt = [&](const size_t start) { return text.substr(start, lineEnd(start) - start); };
-
-  size_t first = lineStart(at);
-  while (first > 0 && isTaskLine(lineAt(lineStart(first - 1)))) first = lineStart(first - 1);
-  size_t last = lineEnd(at);
-  while (last < text.size() && isTaskLine(lineAt(last + 1))) last = lineEnd(last + 1);
-
-  std::vector<std::string> lines;
-  size_t moved = 0;
-  for (size_t pos = first; pos <= last;) {
-    const size_t end = lineEnd(pos);
-    if (pos <= at && at <= end) moved = lines.size();
-    lines.push_back(text.substr(pos, end - pos));
-    pos = end + 1;
-  }
-  const std::string item = std::move(lines[moved]);
-  lines.erase(lines.begin() + static_cast<std::ptrdiff_t>(moved));
-  size_t target = lines.size();
-  if (!isDoneTask(item)) {
-    for (size_t k = 0; k < lines.size(); ++k) {
-      if (isDoneTask(lines[k])) {
-        target = k;
-        break;
-      }
-    }
-  }
-  lines.insert(lines.begin() + static_cast<std::ptrdiff_t>(target), item);
-
-  std::string block;
-  block.reserve(last - first);
-  size_t itemStart = first;
-  for (size_t k = 0; k < lines.size(); ++k) {
-    if (k > 0) block += '\n';
-    if (k == target) itemStart = first + block.size();
-    block += lines[k];
-  }
-  text.replace(first, last - first, block);
-  if (cursor >= first && cursor <= last) cursor = itemStart + item.size();
-}
-
 // Enter continues a list; on an empty item it ends the list instead.
 void NoteEditorActivity::insertNewline() {
   const size_t nl = cursor == 0 ? std::string::npos : text.rfind('\n', cursor - 1);
@@ -622,7 +555,6 @@ bool NoteEditorActivity::toggleCheckboxAt(const int x, const int y) {
     if ((glyph == note_md::Glyph::Box || glyph == note_md::Glyph::BoxChecked) && x >= penX - BOX_GAP && x < penX + w) {
       const size_t mark = note_md::checkboxMark(i);
       text[mark] = text[mark] == ' ' ? 'x' : ' ';
-      if (SETTINGS.notesCheckedToBottom) moveCheckedItem(i);
       dirty = true;
       styleStale = true;
       return true;
@@ -725,7 +657,6 @@ void NoteEditorActivity::drawToolbar() const {
                                                            &icon_fmt_heading_28};
   const int top = toolbarTop();
   const int width = renderer.getScreenWidth();
-  renderer.drawLine(0, top, width - 1, top);
   for (int i = 0; i < FORMAT_COUNT; ++i) {
     const freeink::Icon& icon = *ICONS[i];
     const int cx = width * (2 * i + 1) / (2 * FORMAT_COUNT);

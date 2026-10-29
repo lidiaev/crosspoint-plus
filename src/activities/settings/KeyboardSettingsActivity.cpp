@@ -14,7 +14,6 @@ struct Row {
 constexpr Row ROWS[] = {
     {StrId::STR_KB_AUTO_CAPS, &CrossPointSettings::keyboardAutoCapitalize},
     {StrId::STR_KB_DOUBLE_SPACE_PERIOD, &CrossPointSettings::keyboardDoubleSpacePeriod},
-    {StrId::STR_NOTES_CHECKED_TO_BOTTOM, &CrossPointSettings::notesCheckedToBottom},
 };
 }  // namespace
 
