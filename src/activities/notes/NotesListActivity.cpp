@@ -26,6 +26,7 @@ void NotesListActivity::onEnter() {
   UiListActivity::onEnter();
   app.on(ACTION_SEARCH, &NotesListActivity::searchTrampoline, this);
   app.on(ACTION_BACK, &NotesListActivity::backTrampoline, this);
+  app.on(ACTION_NEW, &NotesListActivity::newNoteTrampoline, this);
 }
 
 // Every query word must prefix a word of the title or the text. Notes are
@@ -51,14 +52,7 @@ void NotesListActivity::applyFilter() {
 
 void NotesListActivity::rebuildRows() {
   rows.clear();
-  rows.reserve(shown.size() + 1);
-  if (query.empty()) {
-    fui::ListItem add;
-    add.label = tr(STR_NEW_NOTE);
-    add.icon = fui::bitmapFromIcon(icon_note_new_32);
-    add.actionValue = 0;
-    rows.push_back(add);
-  }
+  rows.reserve(shown.size());
   for (const int i : shown) {
     const auto& note = notesList[i];
     fui::ListItem item;
@@ -133,6 +127,8 @@ void NotesListActivity::buildHeader(UiScreen& screen) {
   header.leadingAction = ACTION_BACK;
   header.trailingIcon = fui::bitmapFromIcon(icon_search_32);
   header.trailingAction = ACTION_SEARCH;
+  header.trailingAdjacentIcon = fui::bitmapFromIcon(icon_note_new_32);
+  header.trailingAdjacentAction = ACTION_NEW;
   const auto frameRect = screen.frame().screen();
   fui::header(screen.frame(),
               fui::Rect{frameRect.x, static_cast<int16_t>(metrics.topPadding), frameRect.width,
@@ -150,7 +146,7 @@ void NotesListActivity::buildScreen(UiScreen& screen) {
       static_cast<int16_t>(renderer.getScreenHeight() - (safe.y + safe.height)), static_cast<int16_t>(safe.x)});
   screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
   if (rows.empty()) {
-    screen.centeredText(tr(STR_NO_NOTES_FOUND));
+    screen.centeredText(query.empty() ? tr(STR_NO_NOTES) : tr(STR_NO_NOTES_FOUND));
     return;
   }
 
@@ -163,18 +159,23 @@ void NotesListActivity::buildScreen(UiScreen& screen) {
   screen.list(props);
 }
 
-// Row 0 is "New note" unless a search hides it.
 int NotesListActivity::noteAt(const int index) const {
-  const int shownIndex = query.empty() ? index - 1 : index;
-  return shownIndex < 0 || shownIndex >= static_cast<int>(shown.size()) ? -1 : shown[shownIndex];
+  return index < 0 || index >= static_cast<int>(shown.size()) ? -1 : shown[index];
 }
 
 void NotesListActivity::activateIndex(const int index) {
   if (index < 0 || index >= listCount()) return;
   app.clearTapFlash();
   const int note = noteAt(index);
-  std::string path = note < 0 ? std::string() : notesList[note].path;
-  activityManager.replaceActivity(std::make_unique<NoteEditorActivity>(renderer, mappedInput, std::move(path)));
+  if (note < 0) return;
+  activityManager.replaceActivity(std::make_unique<NoteEditorActivity>(renderer, mappedInput, notesList[note].path));
+}
+
+void NotesListActivity::newNoteTrampoline(const fui::ActionEvent&, void* user) {
+  auto* self = static_cast<NotesListActivity*>(user);
+  self->app.clearTapFlash();
+  activityManager.replaceActivity(
+      std::make_unique<NoteEditorActivity>(self->renderer, self->mappedInput, std::string()));
 }
 
 // Re-reads /notes after a change; the caller holds the render lock.

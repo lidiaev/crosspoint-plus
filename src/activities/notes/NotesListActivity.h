@@ -7,7 +7,8 @@
 #include "activities/UiListActivity.h"
 #include "components/OptionPopup.h"
 
-// Home > Notes: "New note" followed by the notes in /notes, newest first.
+// Home > Notes: the notes in /notes, pinned first, then newest first. The header
+// holds search and a + button for a new note.
 // The header searches titles and text, like the Library's. Holding a note
 // opens its menu: open, pin or unpin, delete.
 class NotesListActivity final : public UiListActivity {
@@ -32,6 +33,7 @@ class NotesListActivity final : public UiListActivity {
  private:
   static constexpr freeink::ui::ActionId ACTION_SEARCH = ACTION_USER;
   static constexpr freeink::ui::ActionId ACTION_BACK = ACTION_USER + 1;
+  static constexpr freeink::ui::ActionId ACTION_NEW = ACTION_USER + 2;
 
   std::vector<notes::NoteInfo> notesList;
   std::vector<int> shown;  // notesList indices matching the query, in order
@@ -41,7 +43,7 @@ class NotesListActivity final : public UiListActivity {
 
   OptionPopup optionPopup;
 
-  int noteAt(int index) const;  // notesList index of a row, -1 for "New note"
+  int noteAt(int index) const;  // notesList index of a row, -1 when out of range
   void reload();
   void promptDelete(const notes::NoteInfo& note);
   void applyFilter();
@@ -50,4 +52,5 @@ class NotesListActivity final : public UiListActivity {
   void buildHeader(UiScreen& screen);
   static void searchTrampoline(const freeink::ui::ActionEvent& event, void* user);
   static void backTrampoline(const freeink::ui::ActionEvent& event, void* user);
+  static void newNoteTrampoline(const freeink::ui::ActionEvent& event, void* user);
 };
