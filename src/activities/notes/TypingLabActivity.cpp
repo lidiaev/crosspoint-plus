@@ -4,6 +4,7 @@
 #include <GfxRenderer.h>
 #include <HalDisplay.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 
@@ -18,12 +19,15 @@ namespace freeink {
 extern volatile uint8_t uc8279FastLutFrames;
 extern volatile uint8_t uc8279FastLutWhiteFrames;
 extern volatile uint32_t uc8279TimeStream, uc8279TimeSetup, uc8279TimeDrf, uc8279TimeSync;
+extern volatile bool uc8279WindowedFast;
+extern volatile uint8_t uc8279LastWindowCount;
 }  // namespace freeink
 
 namespace {
 constexpr fui::ActionId ACTION_KEY = 1;
 constexpr int MARGIN = 12;
 constexpr uint32_t CLEANUP_IDLE_MS = 1200;
+constexpr uint32_t RESTORE_IDLE_MS = 300;  // pressed key returns to normal after this pause
 
 // Short-LUT frames {to black, to white}; {0, 0} = factory OTP waveform.
 struct LutPair {
@@ -48,6 +52,7 @@ void TypingLabActivity::onEnter() {
   const uint16_t enabledLayouts = keyboard_layouts::enabled();
   showLangKey = (enabledLayouts & (enabledLayouts - 1)) != 0;
   applyLut();
+  freeink::uc8279WindowedFast = windowed.load();
   fullRedraw = true;
   requestUpdate();
 }
@@ -55,6 +60,7 @@ void TypingLabActivity::onEnter() {
 void TypingLabActivity::onExit() {
   freeink::uc8279FastLutFrames = 0;
   freeink::uc8279FastLutWhiteFrames = 0;
+  freeink::uc8279WindowedFast = false;
   Activity::onExit();
 }
 
@@ -90,9 +96,10 @@ int TypingLabActivity::barHeight() const { return renderer.getLineHeight(UI_12_F
 // Three equal tap zones across the top bar.
 TypingLabActivity::Control TypingLabActivity::controlAt(const int x, const int y) const {
   if (y < 0 || y >= barHeight()) return Control::None;
-  const int third = renderer.getScreenWidth() / 3;
-  if (x < third) return Control::Back;
-  if (x < 2 * third) return Control::Lut;
+  const int quarter = renderer.getScreenWidth() / 4;
+  if (x < quarter) return Control::Back;
+  if (x < 2 * quarter) return Control::Lut;
+  if (x < 3 * quarter) return Control::Window;
   return Control::Clear;
 }
 
@@ -112,14 +119,21 @@ void TypingLabActivity::loop() {
     requestUpdate();
   }
 
+  // The inverted key returns to normal with the next key, or after a short pause.
+  const uint32_t shownAt = pressedShownAt.load();
+  if (shownAt != 0 && !contactActive && queueEmpty && now - std::max(shownAt, liftedAt) > RESTORE_IDLE_MS &&
+      !releaseFrame.load()) {
+    releaseFrame = true;
+    requestUpdate();
+  }
+
   // Raw contact edge: act once when a finger lands, then wait for lift-off.
   int tx = 0;
   int ty = 0;
   const bool held = mappedInput.isScreenTouchHeld(tx, ty);
   if (!held) {
     if (contactActive) {
-      releaseFrame = true;  // restore the pressed key as soon as the finger lifts
-      requestUpdate();
+      liftedAt = now;
     }
     contactActive = false;
     return;
@@ -144,6 +158,12 @@ void TypingLabActivity::loop() {
     case Control::Lut:
       lutIndex = (lutIndex.load() + 1) % LUT_COUNT;
       applyLut();
+      fullRedraw = true;
+      requestUpdate();
+      return;
+    case Control::Window:
+      windowed = !windowed.load();
+      freeink::uc8279WindowedFast = windowed.load();
       fullRedraw = true;
       requestUpdate();
       return;
@@ -222,7 +242,7 @@ bool TypingLabActivity::applyKey(const int16_t value) {
 
 void TypingLabActivity::drawBars() const {
   const int pageWidth = renderer.getScreenWidth();
-  const int third = pageWidth / 3;
+  const int quarter = pageWidth / 4;
   const int bar = barHeight();
   const LutPair& lut = LUTS[lutIndex.load()];
   char lutLabel[16];
@@ -231,11 +251,11 @@ void TypingLabActivity::drawBars() const {
   } else {
     snprintf(lutLabel, sizeof(lutLabel), "LUT otp");
   }
-  const char* labels[3] = {"< Back", lutLabel, "Clear"};
-  for (int i = 0; i < 3; ++i) {
-    const int width = renderer.getTextWidth(UI_12_FONT_ID, labels[i]);
-    renderer.drawText(UI_12_FONT_ID, i * third + (third - width) / 2, MARGIN, labels[i]);
-    if (i > 0) renderer.drawLine(i * third, MARGIN / 2, i * third, bar - MARGIN / 2);
+  const char* labels[4] = {"< Back", lutLabel, windowed.load() ? "Win on" : "Win off", "Clear"};
+  for (int i = 0; i < 4; ++i) {
+    const int width = renderer.getTextWidth(SMALL_FONT_ID, labels[i]);
+    renderer.drawText(SMALL_FONT_ID, i * quarter + (quarter - width) / 2, MARGIN, labels[i]);
+    if (i > 0) renderer.drawLine(i * quarter, MARGIN / 2, i * quarter, bar - MARGIN / 2);
   }
   renderer.drawLine(0, bar - 1, pageWidth - 1, bar - 1);
 
@@ -247,9 +267,9 @@ void TypingLabActivity::drawBars() const {
            static_cast<unsigned long>(keyCount), static_cast<unsigned long>(refreshCount),
            static_cast<unsigned long>(lastPanelMs), static_cast<unsigned long>(cleanupCount));
   renderer.drawText(SMALL_FONT_ID, MARGIN, bar + MARGIN / 2, line);
-  snprintf(line, sizeof(line), "spi %lu  setup %lu  drf %lu  sync %lu",
-           static_cast<unsigned long>(freeink::uc8279TimeStream), static_cast<unsigned long>(freeink::uc8279TimeSetup),
-           static_cast<unsigned long>(freeink::uc8279TimeDrf), static_cast<unsigned long>(freeink::uc8279TimeSync));
+  snprintf(line, sizeof(line), "spi %lu  setup %lu  drf %lu  sync %lu  win %u", static_cast<unsigned long>(keyStream),
+           static_cast<unsigned long>(keySetup), static_cast<unsigned long>(keyDrf),
+           static_cast<unsigned long>(keySync), keyWindows);
   renderer.drawText(SMALL_FONT_ID, MARGIN, bar + MARGIN / 2 + small, line);
 }
 
@@ -387,7 +407,13 @@ void TypingLabActivity::render(RenderLock&&) {
   const uint32_t panelDone = millis();
 
   if (batch > 0 || release) lastKeyFrameAt = panelDone;
+  pressedShownAt = pressedKey != INT16_MIN ? panelDone : 0;
   if (batch > 0) {
+    keyStream = freeink::uc8279TimeStream;
+    keySetup = freeink::uc8279TimeSetup;
+    keyDrf = freeink::uc8279TimeDrf;
+    keySync = freeink::uc8279TimeSync;
+    keyWindows = freeink::uc8279WindowedFast ? freeink::uc8279LastWindowCount : 0;
     lastLatencyMs = panelDone - oldestDownMs;
     lastPanelMs = panelDone - drawDone;
     latencySumMs += lastLatencyMs;

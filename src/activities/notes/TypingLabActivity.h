@@ -25,7 +25,7 @@ class TypingLabActivity final : public Activity {
   bool skipLoopDelay() override { return true; }
 
  private:
-  enum class Control : uint8_t { None, Back, Lut, Clear };
+  enum class Control : uint8_t { None, Back, Lut, Window, Clear };
 
   struct PendingKey {
     int16_t value;
@@ -43,6 +43,9 @@ class TypingLabActivity final : public Activity {
   std::atomic<bool> cleanupFrame{false};
   std::atomic<uint8_t> lutIndex{2};         // 8/16
   std::atomic<uint32_t> lastKeyFrameAt{0};  // 0 = idle cleanup already done
+  std::atomic<uint32_t> pressedShownAt{0};  // 0 = no key shown inverted
+  std::atomic<bool> windowed{true};
+  uint32_t liftedAt = 0;
   bool contactActive = false;
   int contactX = 0;  // last sampled position of the handled contact
   int contactY = 0;
@@ -61,6 +64,9 @@ class TypingLabActivity final : public Activity {
   uint32_t refreshCount = 0;
   uint32_t cleanupCount = 0;
   uint32_t keyCount = 0;
+  // Driver stage times of the last key frame (ms) and its dirty window count.
+  uint32_t keyStream = 0, keySetup = 0, keyDrf = 0, keySync = 0;
+  uint8_t keyWindows = 0;
 
   void enqueue(int16_t value, uint32_t downMs);
   bool keyAt(int x, int y, int16_t& value) const;
