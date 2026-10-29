@@ -97,6 +97,13 @@ class HalGPIO {
   bool wasTouchReleased() const;
   bool isTouchTapCandidate(float& nx, float& ny, unsigned long& heldMs) const;
   bool isTouchHeldAt(float& nx, float& ny) const;
+  // All current contacts (up to `max`), normalized like the single-touch API.
+  // Unlike isTouchHeldAt(), a second finger does not hide the first.
+  struct TouchContact {
+    float nx;
+    float ny;
+  };
+  uint8_t getTouchContacts(TouchContact* out, uint8_t max) const;
   // One-shot long-press, fired by the SDK classifier while the finger is still
   // down (stationary contact held past its threshold). Position = touch-down
   // point. Callers that act on it should suppressTouchContact() so the lift

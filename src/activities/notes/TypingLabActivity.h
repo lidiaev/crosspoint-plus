@@ -25,7 +25,7 @@ class TypingLabActivity final : public Activity {
   bool skipLoopDelay() override { return true; }
 
  private:
-  enum class Control : uint8_t { None, Back, Hit, Dot, Clear };
+  enum class Control : uint8_t { None, Back, Hit, Scan, Clear };
 
   static constexpr uint8_t KB_ROWS = 4;
   static constexpr uint8_t KB_COLS = 14;
@@ -50,17 +50,25 @@ class TypingLabActivity final : public Activity {
   std::atomic<bool> windowed{true};
   std::atomic<bool> hitDelay{false};  // resolve the key ~30 ms after touch-down
   std::atomic<bool> showDot{true};    // mark where the last key press registered
+  std::atomic<bool> scanWindow{false};
   std::atomic<int16_t> dotX{-1};
   std::atomic<int16_t> dotY{-1};
-  bool pendingPress = false;
-  uint32_t pendingDownAt = 0;
+  // One track per finger: each presses exactly once, when it lands (or after the
+  // hit delay). A finger resting on the screen never presses again.
+  struct Track {
+    bool active;
+    bool committed;
+    bool seen;
+    int16_t x;
+    int16_t y;
+    uint32_t since;
+    int16_t value;  // key it pressed, for Backspace repeat
+    uint32_t nextRepeatAt;
+  };
+  static constexpr uint8_t MAX_TRACKS = 4;
+  Track tracks[MAX_TRACKS] = {};
   uint32_t liftedAt = 0;
   bool contactActive = false;
-  int16_t contactValue = INT16_MIN;  // key under the handled contact (for Backspace repeat)
-  uint32_t contactDownAt = 0;
-  uint32_t nextRepeatAt = 0;
-  int contactX = 0;  // last sampled position of the handled contact
-  int contactY = 0;
 
   // Render task state.
   std::string text;
@@ -88,7 +96,9 @@ class TypingLabActivity final : public Activity {
 
   void enqueue(int16_t value, uint32_t downMs);
   bool keyAt(int x, int y, int16_t& value) const;
-  void commitPress(int x, int y, uint32_t downMs);
+  // Handles a top-bar control or queues the key at (x, y); returns the key or INT16_MIN.
+  int16_t commitPress(int x, int y, uint32_t downMs);
+  void pollTouch(uint32_t now);
   Control controlAt(int x, int y) const;
   int barHeight() const;
   // Applies one key; returns true when the keyboard layout changed.

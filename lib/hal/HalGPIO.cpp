@@ -193,6 +193,27 @@ bool HalGPIO::isTouchTapCandidate(float& nx, float& ny, unsigned long& heldMs) c
 
 bool HalGPIO::isTouchHeldAt(float& nx, float& ny) const { return inputMgr.isTouchHeldAt(nx, ny); }
 
+uint8_t HalGPIO::getTouchContacts(TouchContact* out, const uint8_t max) const {
+  if (!inputMgr.supportsMultiTouch()) {
+    float nx = 0.0f;
+    float ny = 0.0f;
+    if (max == 0 || !inputMgr.isTouchHeldAt(nx, ny)) return 0;
+    out[0] = TouchContact{nx, ny};
+    return 1;
+  }
+  const InputManager::TouchSnapshot snap = inputMgr.getTouchSnapshot();
+  const auto& t = BoardConfig::ACTIVE.touch;
+  const float w = (t.rawMaxX > t.rawMinX) ? static_cast<float>(t.rawMaxX - t.rawMinX) : 1.0f;
+  const float h = (t.rawMaxY > t.rawMinY) ? static_cast<float>(t.rawMaxY - t.rawMinY) : 1.0f;
+  const auto clamp01 = [](const float v) { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); };
+  uint8_t n = 0;
+  for (uint8_t i = 0; i < snap.count && n < max; ++i) {
+    const auto& p = snap.points[i].point;
+    out[n++] = TouchContact{clamp01(p.x / w), clamp01(p.y / h)};
+  }
+  return n;
+}
+
 bool HalGPIO::wasTouchLongPress(float& nx, float& ny) const { return inputMgr.wasTouchLongPress(nx, ny); }
 
 void HalGPIO::suppressTouchContact() { inputMgr.suppressTouchContact(); }

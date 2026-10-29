@@ -3,6 +3,7 @@
 
 #include <GfxRenderer.h>
 #include <HalDisplay.h>
+#include <HalGPIO.h>
 
 #include <algorithm>
 #include <cstdio>
@@ -21,6 +22,7 @@ extern volatile uint8_t uc8279FastLutWhiteFrames;
 extern volatile uint32_t uc8279TimeStream, uc8279TimeSetup, uc8279TimeDrf, uc8279TimeSync;
 extern volatile bool uc8279WindowedFast;
 extern volatile uint8_t uc8279LastWindowCount;
+extern volatile bool uc8279ScanWindow;
 }  // namespace freeink
 
 namespace {
@@ -64,6 +66,7 @@ void TypingLabActivity::onExit() {
   freeink::uc8279FastLutFrames = 0;
   freeink::uc8279FastLutWhiteFrames = 0;
   freeink::uc8279WindowedFast = false;
+  freeink::uc8279ScanWindow = false;
   Activity::onExit();
 }
 
@@ -109,7 +112,7 @@ TypingLabActivity::Control TypingLabActivity::controlAt(const int x, const int y
   const int quarter = renderer.getScreenWidth() / 4;
   if (x < quarter) return Control::Back;
   if (x < 2 * quarter) return Control::Hit;
-  if (x < 3 * quarter) return Control::Dot;
+  if (x < 3 * quarter) return Control::Scan;
   return Control::Clear;
 }
 
@@ -137,97 +140,114 @@ void TypingLabActivity::loop() {
     requestUpdate();
   }
 
-  // Raw contact edge: act once when a finger lands, then wait for lift-off.
-  int tx = 0;
-  int ty = 0;
-  const bool held = mappedInput.isScreenTouchHeld(tx, ty);
+  pollTouch(now);
+}
 
-  // Holding Backspace repeats, faster the longer it is held.
-  if (held && contactActive && contactValue == fui::QWERTY_KEY_BACKSPACE && now >= nextRepeatAt) {
-    enqueue(fui::QWERTY_KEY_BACKSPACE, now);
-    nextRepeatAt = now + (now - contactDownAt > 1500 ? 50 : 110);
-    requestUpdate();
-  }
-  if (!held) {
-    if (pendingPress) commitPress(contactX, contactY, pendingDownAt);  // lifted before the delay ran out
-    pendingPress = false;
-    if (contactActive) liftedAt = now;
-    contactActive = false;
-    contactValue = INT16_MIN;
-    return;
-  }
-  // The touch controller reports one point: when the next finger lands before the
-  // previous one lifts, the point jumps to the new key. Treat a jump as a new press.
-  constexpr int ROLLOVER_JUMP_PX = 24;
+void TypingLabActivity::pollTouch(const uint32_t now) {
+  constexpr int MATCH_PX = 48;  // same finger if it moved less than this between samples
+  constexpr int EDGE_PX = 8;    // a contact landing on the side edge is a gripping thumb
   constexpr uint32_t HIT_DELAY_MS = 30;
-  if (contactActive) {
-    const bool jumped = abs(tx - contactX) > ROLLOVER_JUMP_PX || abs(ty - contactY) > ROLLOVER_JUMP_PX;
-    if (!jumped) {
-      contactX = tx;
-      contactY = ty;
-      if (pendingPress && now - pendingDownAt >= HIT_DELAY_MS) {
-        pendingPress = false;
-        commitPress(tx, ty, pendingDownAt);
-      }
-      return;
-    }
-    if (pendingPress) commitPress(contactX, contactY, pendingDownAt);  // the previous finger's press
-    pendingPress = false;
-  }
-  contactActive = true;
-  contactX = tx;
-  contactY = ty;
-  contactValue = INT16_MIN;
 
-  switch (controlAt(tx, ty)) {
+  HalGPIO::TouchContact contacts[MAX_TRACKS];
+  const uint8_t count = gpio.getTouchContacts(contacts, MAX_TRACKS);
+  for (Track& t : tracks) t.seen = false;
+
+  const int width = renderer.getScreenWidth();
+  for (uint8_t i = 0; i < count; ++i) {
+    int x = 0;
+    int y = 0;
+    renderer.tapToLogical(contacts[i].nx, contacts[i].ny, x, y);
+    Track* match = nullptr;
+    int best = MATCH_PX * MATCH_PX;
+    for (Track& t : tracks) {
+      if (!t.active || t.seen) continue;
+      const int d = (t.x - x) * (t.x - x) + (t.y - y) * (t.y - y);
+      if (d < best) {
+        best = d;
+        match = &t;
+      }
+    }
+    if (!match) {
+      for (Track& t : tracks) {
+        if (t.active) continue;
+        t = Track{true, false, false, 0, 0, now, INT16_MIN, 0};
+        t.committed = x < EDGE_PX || x >= width - EDGE_PX;
+        match = &t;
+        break;
+      }
+    }
+    if (!match) continue;
+    match->x = static_cast<int16_t>(x);
+    match->y = static_cast<int16_t>(y);
+    match->seen = true;
+  }
+
+  bool anyActive = false;
+  for (Track& t : tracks) {
+    if (!t.active) continue;
+    if (!t.seen) {
+      // Lifted: a tap shorter than the hit delay still counts, at its last position.
+      if (!t.committed) commitPress(t.x, t.y, t.since);
+      t.active = false;
+      continue;
+    }
+    anyActive = true;
+    if (!t.committed && (!hitDelay.load() || now - t.since >= HIT_DELAY_MS)) {
+      t.committed = true;
+      t.value = commitPress(t.x, t.y, t.since);
+      t.nextRepeatAt = t.since + 450;
+    }
+    // Holding Backspace repeats, faster the longer it is held.
+    if (t.committed && t.value == fui::QWERTY_KEY_BACKSPACE && now >= t.nextRepeatAt) {
+      enqueue(fui::QWERTY_KEY_BACKSPACE, now);
+      t.nextRepeatAt = now + (now - t.since > 1500 ? 50 : 110);
+      requestUpdate();
+    }
+  }
+  if (contactActive && !anyActive) liftedAt = now;
+  contactActive = anyActive;
+}
+
+int16_t TypingLabActivity::commitPress(const int x, const int y, const uint32_t downMs) {
+  switch (controlAt(x, y)) {
     case Control::Back:
       onGoHome();
-      return;
+      return INT16_MIN;
     case Control::Hit:
       hitDelay = !hitDelay.load();
       fullRedraw = true;
       requestUpdate();
-      return;
-    case Control::Dot:
-      showDot = !showDot.load();
+      return INT16_MIN;
+    case Control::Scan:
+      scanWindow = !scanWindow.load();
+      freeink::uc8279ScanWindow = scanWindow.load();
       fullRedraw = true;
       requestUpdate();
-      return;
+      return INT16_MIN;
     case Control::Clear:
-      enqueue(CLEAR_TEXT, now);
+      enqueue(CLEAR_TEXT, downMs);
       fullRedraw = true;
       requestUpdate();
-      return;
+      return INT16_MIN;
     case Control::None:
       break;
   }
-
-  if (hitDelay.load()) {
-    pendingPress = true;
-    pendingDownAt = now;
-    return;
-  }
-  commitPress(tx, ty, now);
-}
-
-void TypingLabActivity::commitPress(const int x, const int y, const uint32_t downMs) {
   int16_t value = 0;
-  if (!keyAt(x, y, value)) return;
-  contactValue = value;
-  contactDownAt = downMs;
-  nextRepeatAt = downMs + 450;
+  if (!keyAt(x, y, value)) return INT16_MIN;
   dotX = static_cast<int16_t>(x);
   dotY = static_cast<int16_t>(y);
   enqueue(value, downMs);
   requestUpdate();
+  return value;
 }
 
 namespace {
-// Letter rows: UTF-8 letters, separated by spaces. Key ids are the code points.
+// Key rows: UTF-8 characters separated by spaces. Key ids are the code points.
 constexpr const char* RU_LOWER[3] = {"й ц у к е н г ш щ з х ъ", "ф ы в а п р о л д ж э", "я ч с м и т ь б ю"};
 constexpr const char* RU_UPPER[3] = {"Й Ц У К Е Н Г Ш Щ З Х Ъ", "Ф Ы В А П Р О Л Д Ж Э", "Я Ч С М И Т Ь Б Ю"};
 constexpr const char* EN_LOWER[3] = {"q w e r t y u i o p", "a s d f g h j k l", "z x c v b n m"};
 constexpr const char* EN_UPPER[3] = {"Q W E R T Y U I O P", "A S D F G H J K L", "Z X C V B N M"};
+constexpr const char* SYMBOLS[3] = {"1 2 3 4 5 6 7 8 9 0", "- / : ; ( ) « » @ \"", "№ % + = ? ! '"};
 
 // Decodes one UTF-8 code point starting at s; returns its length.
 int decodeUtf8(const char* s, int16_t& cp) {
@@ -236,28 +256,30 @@ int decodeUtf8(const char* s, int16_t& cp) {
     cp = c;
     return 1;
   }
-  cp = static_cast<int16_t>(((c & 0x1F) << 6) | (static_cast<uint8_t>(s[1]) & 0x3F));
-  return 2;
+  if (c < 0xE0) {
+    cp = static_cast<int16_t>(((c & 0x1F) << 6) | (static_cast<uint8_t>(s[1]) & 0x3F));
+    return 2;
+  }
+  cp = static_cast<int16_t>(((c & 0x0F) << 12) | ((static_cast<uint8_t>(s[1]) & 0x3F) << 6) |
+                            (static_cast<uint8_t>(s[2]) & 0x3F));
+  return 3;
 }
 }  // namespace
 
-// iPhone-like letter layer: Shift and Backspace flank the third row, the bottom
-// row carries comma, a wide space and period. Labels point into static tables.
+// iPhone-like layers: Shift and Backspace flank the third row; the bottom row has
+// the same widths in every layer, so switching language or symbols never moves it.
 void TypingLabActivity::buildLetterLayout() {
   const bool ru = layoutId != fui::KeyboardLayoutId::QwertyEn;
   const bool upper = shifted || capsLock;
-  const char* const* rows = ru ? (upper ? RU_UPPER : RU_LOWER) : (upper ? EN_UPPER : EN_LOWER);
-  static char glyphs[KB_ROWS][KB_COLS][4];  // NUL-terminated letters referenced as label/output
+  const char* const* rows = symbols ? SYMBOLS : ru ? (upper ? RU_UPPER : RU_LOWER) : (upper ? EN_UPPER : EN_LOWER);
+  static char glyphs[KB_ROWS][KB_COLS][4];  // NUL-terminated characters referenced as label/output
   for (uint8_t r = 0; r < 3; ++r) {
     uint8_t n = 0;
     if (r == 2) {
-      kbKeys[r][n++] = fui::KeyboardKey{capsLock ? "CAPS" : "Shift",
-                                        nullptr,
-                                        fui::KeyKind::Shift,
-                                        upper ? fui::StateSelected : fui::StateNormal,
-                                        fui::QWERTY_KEY_SHIFT,
-                                        3,
-                                        true};
+      kbKeys[r][n++] =
+          symbols ? fui::KeyboardKey{"#", "#", fui::KeyKind::Normal, fui::StateNormal, '#', 3, true}
+                  : fui::KeyboardKey{nullptr, nullptr, fui::KeyKind::Shift, fui::StateNormal, fui::QWERTY_KEY_SHIFT,
+                                     3,       true};
     }
     for (const char* p = rows[r]; *p && n < KB_COLS - 1;) {
       if (*p == ' ') {
@@ -273,30 +295,27 @@ void TypingLabActivity::buildLetterLayout() {
       p += len;
     }
     if (r == 2) {
-      kbKeys[r][n++] =
-          fui::KeyboardKey{"Del", nullptr, fui::KeyKind::Delete, fui::StateNormal, fui::QWERTY_KEY_BACKSPACE, 3, true};
+      kbKeys[r][n++] = fui::KeyboardKey{
+          nullptr, nullptr, fui::KeyKind::Delete, fui::StateNormal, fui::QWERTY_KEY_BACKSPACE, 3, true};
     }
-    kbRows[r] = fui::KeyboardRow{kbKeys[r], n, static_cast<uint8_t>(r == 1 ? 1 : 0)};
+    kbRows[r] = fui::KeyboardRow{kbKeys[r], n, static_cast<uint8_t>(r == 1 && !symbols ? 1 : 0)};
   }
   uint8_t n = 0;
   kbKeys[3][n++] =
-      fui::KeyboardKey{"?123", nullptr, fui::KeyKind::Mode, fui::StateNormal, fui::QWERTY_KEY_MODE, 3, true};
+      fui::KeyboardKey{nullptr, nullptr, fui::KeyKind::Mode, fui::StateNormal, fui::QWERTY_KEY_MODE, 3, true};
   kbKeys[3][n++] =
-      fui::KeyboardKey{nullptr, nullptr, fui::KeyKind::Lang, fui::StateNormal, fui::QWERTY_KEY_LANG, 2, true};
+      fui::KeyboardKey{nullptr, nullptr, fui::KeyKind::Lang, fui::StateNormal, fui::QWERTY_KEY_LANG, 3, true};
   kbKeys[3][n++] = fui::KeyboardKey{",", ",", fui::KeyKind::Normal, fui::StateNormal, ',', 2, true};
-  kbKeys[3][n++] = fui::KeyboardKey{
-      "", " ", fui::KeyKind::Space, fui::StateNormal, fui::QWERTY_KEY_SPACE, static_cast<uint8_t>(ru ? 10 : 6), true};
+  kbKeys[3][n++] =
+      fui::KeyboardKey{nullptr, " ", fui::KeyKind::Space, fui::StateNormal, fui::QWERTY_KEY_SPACE, 9, true};
   kbKeys[3][n++] = fui::KeyboardKey{".", ".", fui::KeyKind::Normal, fui::StateNormal, '.', 2, true};
   kbKeys[3][n++] =
-      fui::KeyboardKey{"\xE2\x86\xB5", nullptr, fui::KeyKind::Ok, fui::StateNormal, fui::QWERTY_KEY_ENTER, 5, true};
+      fui::KeyboardKey{nullptr, nullptr, fui::KeyKind::Ok, fui::StateNormal, fui::QWERTY_KEY_ENTER, 5, true};
   kbRows[3] = fui::KeyboardRow{kbKeys[3], n, 0};
   kbLayout = fui::KeyboardLayout{kbRows, KB_ROWS};
 }
 
-const fui::KeyboardLayout& TypingLabActivity::currentLayout() const {
-  if (symbols) return fui::builtinKeyboardLayout(layoutId, shifted, true, false, true);
-  return kbLayout;
-}
+const fui::KeyboardLayout& TypingLabActivity::currentLayout() const { return kbLayout; }
 
 fui::Rect TypingLabActivity::keyboardRect() const {
   constexpr int KEY_HEIGHT = 60;
@@ -383,6 +402,12 @@ bool TypingLabActivity::applyKey(const int16_t value, const uint32_t downMs) {
         encoded[0] = static_cast<char>(0xC0 | (value >> 6));
         encoded[1] = static_cast<char>(0x80 | (value & 0x3F));
         out = encoded;
+      } else if (!out && static_cast<uint16_t>(value) >= 0x800) {
+        const uint16_t v = static_cast<uint16_t>(value);
+        encoded[0] = static_cast<char>(0xE0 | (v >> 12));
+        encoded[1] = static_cast<char>(0x80 | ((v >> 6) & 0x3F));
+        encoded[2] = static_cast<char>(0x80 | (v & 0x3F));
+        out = encoded;
       }
       if (!out) return false;
       text += out;
@@ -411,7 +436,7 @@ void TypingLabActivity::drawBars() const {
     snprintf(lutLabel, sizeof(lutLabel), "LUT otp");
   }
   (void)lutLabel;
-  const char* labels[4] = {"< Back", hitDelay.load() ? "Hit 30ms" : "Hit 0", showDot.load() ? "Dot on" : "Dot off",
+  const char* labels[4] = {"< Back", hitDelay.load() ? "Hit 30ms" : "Hit 0", scanWindow.load() ? "Scan on" : "Scan off",
                            "Clear"};
   for (int i = 0; i < 4; ++i) {
     const int width = renderer.getTextWidth(SMALL_FONT_ID, labels[i]);
@@ -490,20 +515,20 @@ void TypingLabActivity::drawText(const bool cursor) const {
 }
 
 namespace {
-// System-key glyphs in one stroke weight, centered in the key rect.
+// System-key glyphs: one 2 px outline style, ~22 px tall, centered on (cx, cy).
 void drawShiftGlyph(const GfxRenderer& r, int cx, int cy, bool on, bool caps, bool ink) {
-  const int xs[7] = {cx, cx + 11, cx + 5, cx + 5, cx - 5, cx - 5, cx - 11};
-  const int ys[7] = {cy - 12, cy - 1, cy - 1, cy + 9, cy + 9, cy - 1, cy - 1};
+  const int xs[7] = {cx, cx + 10, cx + 5, cx + 5, cx - 5, cx - 5, cx - 10};
+  const int ys[7] = {cy - 11, cy - 1, cy - 1, cy + 8, cy + 8, cy - 1, cy - 1};
   if (on) {
     r.fillPolygon(xs, ys, 7, ink);
   } else {
     for (int i = 0; i < 7; ++i) r.drawLine(xs[i], ys[i], xs[(i + 1) % 7], ys[(i + 1) % 7], 2, ink);
   }
-  if (caps) r.fillRect(cx - 5, cy + 12, 11, 2, ink);
+  if (caps) r.fillRect(cx - 5, cy + 11, 11, 2, ink);
 }
 
 void drawDeleteGlyph(const GfxRenderer& r, int cx, int cy, bool ink) {
-  const int xs[5] = {cx - 14, cx - 6, cx + 13, cx + 13, cx - 6};
+  const int xs[5] = {cx - 13, cx - 5, cx + 12, cx + 12, cx - 5};
   const int ys[5] = {cy, cy - 9, cy - 9, cy + 9, cy + 9};
   for (int i = 0; i < 5; ++i) r.drawLine(xs[i], ys[i], xs[(i + 1) % 5], ys[(i + 1) % 5], 2, ink);
   r.drawLine(cx - 1, cy - 4, cx + 7, cy + 4, 2, ink);
@@ -511,28 +536,22 @@ void drawDeleteGlyph(const GfxRenderer& r, int cx, int cy, bool ink) {
 }
 
 void drawReturnGlyph(const GfxRenderer& r, int cx, int cy, bool ink) {
-  r.drawLine(cx + 10, cy - 9, cx + 10, cy + 3, 2, ink);
+  r.drawLine(cx + 10, cy - 8, cx + 10, cy + 3, 2, ink);
   r.drawLine(cx + 10, cy + 3, cx - 10, cy + 3, 2, ink);
   r.drawLine(cx - 10, cy + 3, cx - 4, cy - 3, 2, ink);
   r.drawLine(cx - 10, cy + 3, cx - 4, cy + 9, 2, ink);
 }
 
-void drawGlobeGlyph(const GfxRenderer& r, int cx, int cy, bool ink) {
-  constexpr int R = 10;
-  r.drawArc(R, cx, cy, -1, -1, 2, ink);
-  r.drawArc(R, cx, cy, 1, -1, 2, ink);
-  r.drawArc(R, cx, cy, -1, 1, 2, ink);
-  r.drawArc(R, cx, cy, 1, 1, 2, ink);
-  r.drawLine(cx - R, cy, cx + R, cy, 1, ink);
-  r.drawLine(cx, cy - R, cx, cy + R, 1, ink);
-  r.drawLine(cx - 8, cy - 5, cx + 8, cy - 5, 1, ink);
-  r.drawLine(cx - 8, cy + 5, cx + 8, cy + 5, 1, ink);
+void drawCenteredLabel(const GfxRenderer& r, int font, int cx, int cy, const char* label, bool ink) {
+  if (!label || !*label) return;
+  const int tw = r.getTextWidth(font, label);
+  const int th = r.getLineHeight(font);
+  r.drawText(font, cx - tw / 2, cy - th / 2 - 2, label, ink);
 }
 }  // namespace
 
-// Keys are drawn here rather than by the FreeInkUI component so system keys get
-// glyphs in one style and letters are never truncated. Hit rects are published
-// for loop() through the same interaction buffer.
+// Clean layout: no key borders or fills; a pressed key is the only filled shape.
+// Hit rects cover the gaps between keys and are published for loop().
 void TypingLabActivity::drawKeyboard(const int16_t pressed) {
   constexpr int GAP = 6;
   constexpr int ROW_GAP = 8;
@@ -541,6 +560,7 @@ void TypingLabActivity::drawKeyboard(const int16_t pressed) {
   const fui::Rect kb = keyboardRect();
   const int rowHeight = (kb.height - ROW_GAP * (layout.rowCount - 1)) / layout.rowCount;
   const bool upper = shifted || capsLock;
+  const bool en = layoutId == fui::KeyboardLayoutId::QwertyEn;
 
   interactions.beginPublishCycle();
   for (uint8_t row = 0; row < layout.rowCount; ++row) {
@@ -553,45 +573,33 @@ void TypingLabActivity::drawKeyboard(const int16_t pressed) {
     for (uint8_t c = 0; c < kr.count; ++c) {
       const fui::KeyboardKey& key = kr.keys[c];
       const int w = unitW * (key.widthUnits ? key.widthUnits : 1);
-      const bool system = key.kind != fui::KeyKind::Normal && key.kind != fui::KeyKind::Space;
       const bool down = key.value == pressed;
-      const bool active = key.kind == fui::KeyKind::Shift && !symbols && upper;
-      // Letters: outlined. System keys: light gray, like the darker system keys on iOS.
-      if (down) {
-        renderer.fillRoundedRect(x, y, w, rowHeight, RADIUS, Color::Black);
-      } else if (system) {
-        renderer.fillRoundedRect(x, y, w, rowHeight, RADIUS, Color::LightGray);
-      } else {
-        renderer.drawRoundedRect(x, y, w, rowHeight, 1, RADIUS, true);
-      }
+      if (down) renderer.fillRoundedRect(x, y, w, rowHeight, RADIUS, Color::Black);
       const bool ink = !down;
       const int cx = x + w / 2;
       const int cy = y + rowHeight / 2;
-      if (key.kind == fui::KeyKind::Shift && !symbols) {
-        drawShiftGlyph(renderer, cx, cy, active, capsLock, ink);
-      } else if (key.kind == fui::KeyKind::Delete) {
-        drawDeleteGlyph(renderer, cx, cy, ink);
-      } else if (key.kind == fui::KeyKind::Ok) {
-        drawReturnGlyph(renderer, cx, cy, ink);
-      } else if (key.kind == fui::KeyKind::Lang) {
-        drawGlobeGlyph(renderer, cx, cy, ink);
-      } else {
-        const char* label = key.label;
-        int font = UI_12_FONT_ID;
-        if (key.kind == fui::KeyKind::Space) {
-          label = layoutId == fui::KeyboardLayoutId::QwertyEn ? "space" : "пробел";
-          font = SMALL_FONT_ID;
-        } else if (key.kind == fui::KeyKind::Mode) {
-          label = symbols ? (layoutId == fui::KeyboardLayoutId::QwertyEn ? "ABC" : "АБВ") : "123";
-          font = SMALL_FONT_ID;
-        } else if (system) {
-          font = SMALL_FONT_ID;
-        }
-        if (label && *label) {
-          const int tw = renderer.getTextWidth(font, label);
-          const int th = renderer.getLineHeight(font);
-          renderer.drawText(font, cx - tw / 2, cy - th / 2 - 2, label, ink);
-        }
+      switch (key.kind) {
+        case fui::KeyKind::Shift:
+          drawShiftGlyph(renderer, cx, cy, upper, capsLock, ink);
+          break;
+        case fui::KeyKind::Delete:
+          drawDeleteGlyph(renderer, cx, cy, ink);
+          break;
+        case fui::KeyKind::Ok:
+          drawReturnGlyph(renderer, cx, cy, ink);
+          break;
+        case fui::KeyKind::Lang:
+          drawCenteredLabel(renderer, SMALL_FONT_ID, cx, cy, en ? "EN" : "RU", ink);
+          break;
+        case fui::KeyKind::Mode:
+          drawCenteredLabel(renderer, SMALL_FONT_ID, cx, cy, symbols ? (en ? "ABC" : "АБВ") : "123", ink);
+          break;
+        case fui::KeyKind::Space:
+          drawCenteredLabel(renderer, SMALL_FONT_ID, cx, cy, en ? "space" : "пробел", ink);
+          break;
+        default:
+          drawCenteredLabel(renderer, UI_12_FONT_ID, cx, cy, key.label, ink);
+          break;
       }
       fui::Interaction hit;
       hit.rect = fui::Rect{static_cast<int16_t>(x - GAP / 2), static_cast<int16_t>(y - ROW_GAP / 2),
