@@ -33,11 +33,13 @@ class KeyboardEntryActivity : public Activity {
   bool skipLoopDelay() override { return true; }
 
  private:
-  enum class EventType : uint8_t { Key, Alternate, TogglePassword, Done };
+  enum class EventType : uint8_t { Key, Alternate, TogglePassword, TapField, Done };
   struct Event {
     EventType type;
     int16_t value;
     uint32_t downMs;
+    int16_t x = 0;
+    int16_t y = 0;
   };
   static constexpr uint8_t QUEUE_SIZE = 32;
 
@@ -69,6 +71,8 @@ class KeyboardEntryActivity : public Activity {
 
   // Render task state.
   std::string text;
+  size_t cursor = 0;  // byte offset, always on a code point boundary
+  int firstLine = 0;  // first wrapped line in view
   bool passwordVisible = false;
   TypingKeyboard keyboard;
   int16_t pressedKey = INT16_MIN;
@@ -79,6 +83,11 @@ class KeyboardEntryActivity : public Activity {
   void handleEvent(const Event& event);
   void insertText(const char* utf8);
   void deleteBackward();
+  std::string shownText() const;  // the text as drawn: masked for a hidden password
+  size_t toShown(size_t offset) const;
+  size_t fromShown(size_t offset) const;
+  void wrapField(const std::string& shown);
+  void placeCursor(int x, int y);
   void drawField();
   void onComplete(std::string result);
   void onCancel();

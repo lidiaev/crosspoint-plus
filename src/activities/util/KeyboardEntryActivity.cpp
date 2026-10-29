@@ -39,6 +39,7 @@ void KeyboardEntryActivity::onEnter() {
   Activity::onEnter();
   keyboard.begin(inputType == InputType::Url || keyboard_layouts::startingLayout() == fui::KeyboardLayoutId::QwertyEn);
   lineStarts.reserve(8);
+  cursor = text.size();
   fast_typing::enable();
   fullRedraw = true;
   requestUpdate();
@@ -121,9 +122,9 @@ void KeyboardEntryActivity::loop() {
       if (TypingKeyboard::alternateOf(value) != 0) alternateFor = p.downMs;
       enqueue(Event{EventType::Key, value, p.downMs});
       update = true;
-    } else if (inputType == InputType::Password && p.y >= fieldTop && p.y < fieldBottom &&
-               p.x >= renderer.getScreenWidth() - MARGIN - ICON - MARGIN) {
-      enqueue(Event{EventType::TogglePassword, 0, p.downMs});
+    } else if (p.y >= fieldTop && p.y < fieldBottom) {
+      const bool onEye = inputType == InputType::Password && p.x >= renderer.getScreenWidth() - MARGIN - ICON - MARGIN;
+      enqueue(Event{onEye ? EventType::TogglePassword : EventType::TapField, 0, p.downMs, p.x, p.y});
       update = true;
     }
   }
@@ -159,14 +160,83 @@ void KeyboardEntryActivity::loop() {
 void KeyboardEntryActivity::insertText(const char* utf8) {
   const size_t len = strlen(utf8);
   if (maxLength != 0 && text.size() + len > maxLength) return;
-  text.append(utf8, len);
+  text.insert(cursor, utf8, len);
+  cursor += len;
 }
 
 void KeyboardEntryActivity::deleteBackward() {
-  if (text.empty()) return;
-  size_t i = text.size() - 1;
+  if (cursor == 0) return;
+  size_t i = cursor - 1;
   while (i > 0 && (static_cast<uint8_t>(text[i]) & 0xC0) == 0x80) --i;
-  text.erase(i);
+  text.erase(i, cursor - i);
+  cursor = i;
+}
+
+std::string KeyboardEntryActivity::shownText() const {
+  if (inputType != InputType::Password || passwordVisible) return text;
+  std::string shown;
+  shown.reserve(text.size() * 3);
+  for (size_t i = 0; i < text.size(); i += codePointBytes(text, i)) shown += MASK;
+  return shown;
+}
+
+// A masked password draws every code point as one three-byte "•".
+size_t KeyboardEntryActivity::toShown(const size_t offset) const {
+  if (inputType != InputType::Password || passwordVisible) return offset;
+  size_t points = 0;
+  for (size_t i = 0; i < offset && i < text.size(); i += codePointBytes(text, i)) ++points;
+  return points * strlen(MASK);
+}
+
+size_t KeyboardEntryActivity::fromShown(const size_t offset) const {
+  if (inputType != InputType::Password || passwordVisible) return offset;
+  size_t points = offset / strlen(MASK);
+  size_t i = 0;
+  while (i < text.size() && points-- > 0) i += codePointBytes(text, i);
+  return i;
+}
+
+void KeyboardEntryActivity::wrapField(const std::string& shown) {
+  const int maxWidth = renderer.getScreenWidth() - 2 * MARGIN - (inputType == InputType::Password ? ICON + MARGIN : 0);
+  lineStarts.clear();
+  lineStarts.push_back(0);
+  int lineWidth = 0;
+  char glyph[5] = {};
+  for (size_t i = 0; i < shown.size();) {
+    const size_t len = std::min(codePointBytes(shown, i), shown.size() - i);
+    memcpy(glyph, shown.data() + i, len);
+    glyph[len] = '\0';
+    const int w = renderer.getTextAdvanceX(FONT, glyph, EpdFontFamily::REGULAR);
+    if (lineWidth + w > maxWidth && lineWidth > 0) {
+      lineStarts.push_back(static_cast<uint32_t>(i));
+      lineWidth = 0;
+    }
+    lineWidth += w;
+    i += len;
+  }
+}
+
+// A tap on the text puts the cursor on the nearest character boundary.
+void KeyboardEntryActivity::placeCursor(const int x, const int y) {
+  const std::string shown = shownText();
+  wrapField(shown);
+  const int lineHeight = renderer.getLineHeight(FONT);
+  const int lines = static_cast<int>(lineStarts.size());
+  const int line = std::clamp(firstLine + (y - fieldTop - MARGIN / 2) / lineHeight, 0, lines - 1);
+  size_t i = lineStarts[line];
+  const size_t end = line + 1 < lines ? lineStarts[line + 1] : shown.size();
+  int penX = MARGIN;
+  char glyph[5] = {};
+  while (i < end) {
+    const size_t len = std::min(codePointBytes(shown, i), shown.size() - i);
+    memcpy(glyph, shown.data() + i, len);
+    glyph[len] = '\0';
+    const int w = renderer.getTextAdvanceX(FONT, glyph, EpdFontFamily::REGULAR);
+    if (x < penX + w / 2) break;
+    penX += w;
+    i += len;
+  }
+  cursor = fromShown(i);
 }
 
 void KeyboardEntryActivity::handleEvent(const Event& event) {
@@ -191,11 +261,14 @@ void KeyboardEntryActivity::handleEvent(const Event& event) {
     }
     case EventType::Alternate: {
       // Replaces the е just typed with ё.
-      TypingKeyboard::replaceWithAlternate(text, text.size());
+      TypingKeyboard::replaceWithAlternate(text, cursor);
       break;
     }
     case EventType::TogglePassword:
       passwordVisible = !passwordVisible;
+      break;
+    case EventType::TapField:
+      placeCursor(event.x, event.y);
       break;
     case EventType::Done:
       done = true;
@@ -203,50 +276,36 @@ void KeyboardEntryActivity::handleEvent(const Event& event) {
   }
 }
 
-// The text wraps under the header; when it outgrows the space above the
-// keyboard, its last lines stay in view. The cursor always sits at the end.
+// The text wraps under the header and scrolls to keep the cursor in view.
 void KeyboardEntryActivity::drawField() {
   const int width = renderer.getScreenWidth();
   const int lineHeight = renderer.getLineHeight(FONT);
-  const bool masked = inputType == InputType::Password && !passwordVisible;
-  const int maxWidth = width - 2 * MARGIN - (inputType == InputType::Password ? ICON + MARGIN : 0);
-
-  std::string shown;
-  if (masked) {
-    shown.reserve(text.size());
-    for (size_t i = 0; i < text.size(); i += codePointBytes(text, i)) shown += MASK;
-  }
-  const std::string& s = masked ? shown : text;
-
-  lineStarts.clear();
-  lineStarts.push_back(0);
-  int lineWidth = 0;
-  char glyph[5] = {};
-  for (size_t i = 0; i < s.size();) {
-    const size_t len = std::min(codePointBytes(s, i), s.size() - i);
-    memcpy(glyph, s.data() + i, len);
-    glyph[len] = '\0';
-    const int w = renderer.getTextAdvanceX(FONT, glyph, EpdFontFamily::REGULAR);
-    if (lineWidth + w > maxWidth && lineWidth > 0) {
-      lineStarts.push_back(static_cast<uint32_t>(i));
-      lineWidth = 0;
-    }
-    lineWidth += w;
-    i += len;
-  }
+  const std::string shown = shownText();
+  wrapField(shown);
 
   const int top = fieldTop + MARGIN / 2;
   const int maxLines = std::max(1, (keyboard.rect(renderer).y - MARGIN - top) / lineHeight - 1);
   const int lines = static_cast<int>(lineStarts.size());
-  const int first = std::max(0, lines - maxLines);
+  const size_t caret = toShown(cursor);
+  int cursorLine = lines - 1;
+  while (cursorLine > 0 && lineStarts[cursorLine] > caret) --cursorLine;
+  firstLine = std::clamp(firstLine, std::max(0, cursorLine - maxLines + 1), cursorLine);
+  firstLine = std::min(firstLine, std::max(0, lines - maxLines));
+  const int last = std::min(lines, firstLine + maxLines);
+
   int y = top;
   std::string segment;
-  for (int l = first; l < lines; ++l) {
+  for (int l = firstLine; l < last; ++l) {
     const size_t start = lineStarts[l];
-    const size_t end = l + 1 < lines ? lineStarts[l + 1] : s.size();
-    segment.assign(s, start, end - start);
+    const size_t end = l + 1 < lines ? lineStarts[l + 1] : shown.size();
+    segment.assign(shown, start, end - start);
     renderer.drawText(FONT, MARGIN, y, segment.c_str());
-    if (l == lines - 1) renderer.fillRect(MARGIN + lineWidth, y, 2, lineHeight);
+    if (l == cursorLine) {
+      // Measured as drawn (with kerning) and centered on the boundary.
+      segment.resize(caret - start);
+      renderer.fillRect(MARGIN + renderer.getTextAdvanceX(FONT, segment.c_str(), EpdFontFamily::REGULAR) - 1, y, 2,
+                        lineHeight);
+    }
     y += lineHeight;
   }
 
