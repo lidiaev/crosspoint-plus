@@ -332,6 +332,13 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
                           "longPressButtonBehavior", StrId::STR_CAT_CONTROLS),
         SettingInfo::Enum(StrId::STR_LONG_PRESS_MENU, &CrossPointSettings::longPressMenuFunction,
                           buildLongPressMenuValues(), "longPressMenuFunction", StrId::STR_CAT_CONTROLS),
+        // Keyboard and notes: persisted here, edited on the Keyboard screen.
+        SettingInfo::Toggle(StrId::STR_KB_AUTO_CAPS, &CrossPointSettings::keyboardAutoCapitalize,
+                            "keyboardAutoCapitalize"),
+        SettingInfo::Toggle(StrId::STR_KB_DOUBLE_SPACE_PERIOD, &CrossPointSettings::keyboardDoubleSpacePeriod,
+                            "keyboardDoubleSpacePeriod"),
+        SettingInfo::Toggle(StrId::STR_NOTES_CHECKED_TO_BOTTOM, &CrossPointSettings::notesCheckedToBottom,
+                            "notesCheckedToBottom"),
         // Erased below unless the board is an X4 Pro.
         SettingInfo::Toggle(StrId::STR_DBL_CLICK_PWR_LIGHT, &CrossPointSettings::doubleClickPwrLight,
                             "doubleClickPwrLight", StrId::STR_CAT_CONTROLS),

@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <cstring>
 
+#include "CrossPointSettings.h"
 #include "MappedInputManager.h"
 #include "NoteMarkdown.h"
 #include "NotesListActivity.h"
@@ -61,7 +62,7 @@ void NoteEditorActivity::onEnter() {
   keyboardShown = path.empty();
   lineStarts.reserve(64);
   keyboard.begin(TypingKeyboard::startsInEnglish());
-  keyboard.autoCapitalize(text, cursor);
+  autoCapitalize();
   fast_typing::enable();
   fullRedraw = true;
   requestUpdate();
@@ -432,8 +433,8 @@ void NoteEditorActivity::applyKey(const int16_t value, const uint32_t downMs, bo
   switch (action) {
     case TypingKeyboard::Action::Insert:
       // Double space after a word ends the sentence.
-      if (out[0] == ' ' && cursor >= 2 && text[cursor - 1] == ' ' && text[cursor - 2] != ' ' &&
-          text[cursor - 2] != '.' && text[cursor - 2] != '\n') {
+      if (SETTINGS.keyboardDoubleSpacePeriod && out[0] == ' ' && cursor >= 2 && text[cursor - 1] == ' ' &&
+          text[cursor - 2] != ' ' && text[cursor - 2] != '.' && text[cursor - 2] != '\n') {
         text[cursor - 1] = '.';
       }
       insertText(out);
@@ -453,7 +454,7 @@ void NoteEditorActivity::applyKey(const int16_t value, const uint32_t downMs, bo
   // Only edits move the sentence start; Shift and layer keys keep the reader's choice.
   if (action == TypingKeyboard::Action::Insert || action == TypingKeyboard::Action::Backspace ||
       action == TypingKeyboard::Action::Enter) {
-    if (keyboard.autoCapitalize(text, cursor)) layoutChanged = true;
+    if (autoCapitalize()) layoutChanged = true;
   }
 }
 
@@ -511,6 +512,77 @@ void NoteEditorActivity::applyFormat(const int16_t format) {
   styleStale = true;
 }
 
+bool NoteEditorActivity::autoCapitalize() {
+  return SETTINGS.keyboardAutoCapitalize && keyboard.autoCapitalize(text, cursor);
+}
+
+namespace {
+bool isTaskLine(const std::string& line) {
+  size_t i = 0;
+  while (i < line.size() && line[i] == ' ') ++i;
+  return i + 4 < line.size() && (line[i] == '-' || line[i] == '*' || line[i] == '+') && line[i + 1] == ' ' &&
+         line[i + 2] == '[' && line[i + 4] == ']';
+}
+
+bool isDoneTask(const std::string& line) {
+  size_t i = 0;
+  while (i < line.size() && line[i] == ' ') ++i;
+  return line[i + 3] != ' ';
+}
+}  // namespace
+
+// With "checked items to bottom" on, a task that was just checked moves to the
+// end of its run of task lines, and an unchecked one moves up above the checked
+// ones, like Apple Notes. `at` is any offset inside the toggled line.
+void NoteEditorActivity::moveCheckedItem(const size_t at) {
+  const auto lineStart = [this](const size_t pos) {
+    const size_t nl = pos == 0 ? std::string::npos : text.rfind('\n', pos - 1);
+    return nl == std::string::npos ? size_t{0} : nl + 1;
+  };
+  const auto lineEnd = [this](const size_t pos) {
+    const size_t nl = text.find('\n', pos);
+    return nl == std::string::npos ? text.size() : nl;
+  };
+  const auto lineAt = [&](const size_t start) { return text.substr(start, lineEnd(start) - start); };
+
+  size_t first = lineStart(at);
+  while (first > 0 && isTaskLine(lineAt(lineStart(first - 1)))) first = lineStart(first - 1);
+  size_t last = lineEnd(at);
+  while (last < text.size() && isTaskLine(lineAt(last + 1))) last = lineEnd(last + 1);
+
+  std::vector<std::string> lines;
+  size_t moved = 0;
+  for (size_t pos = first; pos <= last;) {
+    const size_t end = lineEnd(pos);
+    if (pos <= at && at <= end) moved = lines.size();
+    lines.push_back(text.substr(pos, end - pos));
+    pos = end + 1;
+  }
+  const std::string item = std::move(lines[moved]);
+  lines.erase(lines.begin() + static_cast<std::ptrdiff_t>(moved));
+  size_t target = lines.size();
+  if (!isDoneTask(item)) {
+    for (size_t k = 0; k < lines.size(); ++k) {
+      if (isDoneTask(lines[k])) {
+        target = k;
+        break;
+      }
+    }
+  }
+  lines.insert(lines.begin() + static_cast<std::ptrdiff_t>(target), item);
+
+  std::string block;
+  block.reserve(last - first);
+  size_t itemStart = first;
+  for (size_t k = 0; k < lines.size(); ++k) {
+    if (k > 0) block += '\n';
+    if (k == target) itemStart = first + block.size();
+    block += lines[k];
+  }
+  text.replace(first, last - first, block);
+  if (cursor >= first && cursor <= last) cursor = itemStart + item.size();
+}
+
 // Enter continues a list; on an empty item it ends the list instead.
 void NoteEditorActivity::insertNewline() {
   const size_t nl = cursor == 0 ? std::string::npos : text.rfind('\n', cursor - 1);
@@ -550,6 +622,7 @@ bool NoteEditorActivity::toggleCheckboxAt(const int x, const int y) {
     if ((glyph == note_md::Glyph::Box || glyph == note_md::Glyph::BoxChecked) && x >= penX - BOX_GAP && x < penX + w) {
       const size_t mark = note_md::checkboxMark(i);
       text[mark] = text[mark] == ' ' ? 'x' : ' ';
+      if (SETTINGS.notesCheckedToBottom) moveCheckedItem(i);
       dirty = true;
       styleStale = true;
       return true;
@@ -582,7 +655,7 @@ void NoteEditorActivity::placeCursor(const int x, const int y) {
   // A wrapped line ends in the space it broke after: keep the cursor before it.
   if (i == end && end < text.size() && i > lineStarts[line] && text[i - 1] == ' ') --i;
   cursor = i;
-  keyboard.autoCapitalize(text, cursor);
+  autoCapitalize();
 }
 
 void NoteEditorActivity::handleEvent(const Event& event, bool& layoutChanged) {
@@ -620,7 +693,7 @@ void NoteEditorActivity::handleEvent(const Event& event, bool& layoutChanged) {
       break;
     case EventType::Format:
       applyFormat(event.value);
-      if (keyboard.autoCapitalize(text, cursor)) layoutChanged = true;
+      if (autoCapitalize()) layoutChanged = true;
       keepCursorVisible();
       break;
   }
