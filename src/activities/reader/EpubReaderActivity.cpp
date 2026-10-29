@@ -29,8 +29,6 @@
 #include "EpubReaderFootnoteSelectActivity.h"
 #include "EpubReaderPercentSelectionActivity.h"
 #include "EpubReaderUtils.h"
-#include "KOReaderCredentialStore.h"
-#include "KOReaderSyncActivity.h"
 #include "MappedInputManager.h"
 #include "ProgressMapper.h"
 #include "QrDisplayActivity.h"
@@ -551,11 +549,6 @@ void EpubReaderActivity::loop() {
         bookmarkMessageTime = millis();
         requestUpdate();
         break;
-      case CrossPointSettings::LP_MENU_KOSYNC:
-        if (launchKOReaderSync()) {
-          return;
-        }
-        break;
       case CrossPointSettings::LP_MENU_DICTIONARY:
         openDictionaryWordSelect();
         return;
@@ -575,9 +568,6 @@ void EpubReaderActivity::loop() {
           bookmarkMessageTime = millis();
           requestUpdate();
         }
-        return;
-      case HomeButtonAction::Sync:
-        launchKOReaderSync();
         return;
       case HomeButtonAction::Dictionary:
         if (!showDictionaryMessage) openDictionaryWordSelect();
@@ -929,10 +919,6 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
       requestUpdate();
       break;
     }
-    case EpubReaderMenuActivity::MenuAction::SYNC: {
-      launchKOReaderSync();
-      break;
-    }
     case EpubReaderMenuActivity::MenuAction::BOOKMARKS: {
       startActivityForResult(
           std::make_unique<EpubReaderBookmarksActivity>(renderer, mappedInput, epub, epub->getPath()),
@@ -951,60 +937,11 @@ unsigned long EpubReaderActivity::confirmLongPressThreshold() const {
     case CrossPointSettings::LP_MENU_BOOKMARK:
     case CrossPointSettings::LP_MENU_DICTIONARY:
       return ReaderUtils::BOOKMARK_HOLD_MS;
-    case CrossPointSettings::LP_MENU_KOSYNC:
-      return KOREADER_STORE.hasCredentials() ? ReaderUtils::GO_HOME_MS : 0;
     case CrossPointSettings::LP_MENU_READER_MENU:
     case CrossPointSettings::LP_MENU_DISABLED:
     default:
       return 0;
   }
-}
-
-bool EpubReaderActivity::launchKOReaderSync() {
-  if (!KOREADER_STORE.hasCredentials()) return false;
-
-  RenderLock renderLock;
-
-  const int currentPage = section ? section->currentPage : nextPageNumber;
-  const int totalPages = section ? section->estimatedTotalPages() : cachedChapterTotalPageCount;
-
-  CrossPointPosition localPos = getCurrentPosition();
-  SavedProgressPosition localKoPos;
-  const int tocIdx = epub->getTocIndexForSpineIndex(currentSpineIndex);
-  std::string localChapterName = (tocIdx >= 0) ? epub->getTocItem(tocIdx).title : "";
-  const std::string savedEpubPath = epub->getPath();
-
-  if (!saveProgress(currentSpineIndex, currentPage, totalPages)) {
-    LOG_ERR("KOSync", "Aborting sync because current progress could not be saved");
-    pendingSyncSaveError = true;
-    requestUpdate();
-    return true;
-  }
-
-  LOG_DBG("KOSync", "Releasing epub for sync (heap before: %u)", (unsigned)ESP.getFreeHeap());
-  {
-    if (section) {
-      nextPageNumber = section->currentPage;
-    }
-    discardOverlayPage();
-    ImageBlock::releaseRenderCache();
-    ImageBlock::setExtractor(nullptr, nullptr);
-    section.reset();
-    if (auto* fcm = renderer.getFontCacheManager()) {
-      fcm->releaseSdFontCaches();
-    }
-    // No rendering may run while the chapter mapper borrows the framebuffer.
-    {
-      GfxRenderer::FrameBufferLoan loan(renderer);
-      localKoPos = ProgressMapper::toSavedProgress(epub, localPos);
-    }
-    epub.reset();
-  }
-  LOG_DBG("KOSync", "Epub released (heap after: %u)", (unsigned)ESP.getFreeHeap());
-
-  activityManager.replaceActivity(std::make_unique<KOReaderSyncActivity>(
-      renderer, mappedInput, savedEpubPath, localPos, std::move(localKoPos), std::move(localChapterName)));
-  return true;
 }
 
 void EpubReaderActivity::applyInitialOrientation() {

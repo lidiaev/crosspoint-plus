@@ -234,6 +234,16 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc) {
     }
   }
 
+  // KOReader sync was removed; a gesture still mapped to it does nothing instead.
+  for (uint8_t CrossPointSettings::* field :
+       {&CrossPointSettings::homeButtonTapAction, &CrossPointSettings::homeButtonDoubleTapAction,
+        &CrossPointSettings::homeButtonLongPressAction}) {
+    if (s.*field == static_cast<uint8_t>(HomeButtonAction::Sync)) {
+      s.*field = static_cast<uint8_t>(HomeButtonAction::Ignore);
+      needsResave = true;
+    }
+  }
+
   // SD card font family name — not in SettingsList, load manually
   const char* sfn = doc["sdFontFamilyName"] | "";
   strncpy(sdFontFamilyName, sfn, sizeof(sdFontFamilyName) - 1);

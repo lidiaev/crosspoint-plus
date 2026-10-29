@@ -1,6 +1,7 @@
 #include "HomeButtonSettingsActivity.h"
 
 #include <utility>
+#include <vector>
 
 #include "components/UITheme.h"
 
@@ -17,10 +18,21 @@ void HomeButtonSettingsActivity::activateIndex(int index) {
   nav.selected = index;
   const auto field = home_button::FIELDS[index];
   const uint8_t value = SETTINGS.*field;
-  const int current = value < static_cast<uint8_t>(HomeButtonAction::Count) ? value : 0;
-  optionPopup.show(home_button::GESTURE_LABELS[index], home_button::ACTION_LABELS,
-                   static_cast<int>(HomeButtonAction::Count), current, [field](int selected) {
-                     SETTINGS.*field = static_cast<uint8_t>(selected);
+  // Sync stays a stored value for old settings files but is no longer offered.
+  std::vector<StrId> labels;
+  std::vector<uint8_t> values;
+  labels.reserve(static_cast<size_t>(HomeButtonAction::Count));
+  values.reserve(static_cast<size_t>(HomeButtonAction::Count));
+  int current = 0;
+  for (uint8_t v = 0; v < static_cast<uint8_t>(HomeButtonAction::Count); ++v) {
+    if (v == static_cast<uint8_t>(HomeButtonAction::Sync)) continue;
+    if (v == value) current = static_cast<int>(values.size());
+    labels.push_back(home_button::ACTION_LABELS[v]);
+    values.push_back(v);
+  }
+  optionPopup.show(home_button::GESTURE_LABELS[index], labels.data(), static_cast<int>(labels.size()), current,
+                   [field, values](int selected) {
+                     SETTINGS.*field = values[selected];
                      SETTINGS.saveToFile();
                    });
   requestUpdate();

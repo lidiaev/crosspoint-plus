@@ -164,7 +164,6 @@ class EpubReaderActivity final : public ReaderActivity {
   void activateMoreRow(int row);
   void openFootnoteSelect(bool reopenMenuOnCancel);
   void openDictionaryWordSelect();
-  bool launchKOReaderSync();
   unsigned long confirmLongPressThreshold() const;
   void toggleAutoPageTurn(uint8_t selectedPageTurnOption);
   void loadCachedBookmarks();

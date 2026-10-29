@@ -20,7 +20,6 @@
 #include "CrossPointSettings.h"
 #include "FontDownloadActivity.h"
 #include "HomeButtonSettingsActivity.h"
-#include "KOReaderSettingsActivity.h"
 #include "KeyboardLayoutsActivity.h"
 #include "LanguageSelectActivity.h"
 #include "MappedInputManager.h"
@@ -100,7 +99,6 @@ void SettingsActivity::rebuildSettingsLists() {
   if (halClock.isAvailable()) {
     systemSettings.push_back(SettingInfo::Action(StrId::STR_CLOCK, SettingAction::ClockSettings));
   }
-  systemSettings.push_back(SettingInfo::Action(StrId::STR_KOREADER_SYNC, SettingAction::KOReaderSync));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_CLEAR_READING_CACHE, SettingAction::ClearCache));
   // OTA fetches this board's own release asset (see OtaUpdater); boards whose
   // asset isn't published yet just report no update available.
@@ -346,9 +344,6 @@ void SettingsActivity::toggleCurrentSetting() {
         } else {
           LOG_ERR("SETTINGS", "OOM: ClockSettingsActivity");
         }
-        break;
-      case SettingAction::KOReaderSync:
-        startActivityForResult(std::make_unique<KOReaderSettingsActivity>(renderer, mappedInput), resultHandler);
         break;
       case SettingAction::Network: {
         auto activity = makeUniqueNoThrow<WifiSelectionActivity>(renderer, mappedInput, false);
