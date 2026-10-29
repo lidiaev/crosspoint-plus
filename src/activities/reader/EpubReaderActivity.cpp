@@ -1087,12 +1087,6 @@ void EpubReaderActivity::renderBook() {
   // exit from the overlay while its deferred chrome refresh is still pending.
   settleOverlayRefresh();
 
-  const auto showPendingSyncSaveError = [this]() {
-    if (!pendingSyncSaveError) return;
-    pendingSyncSaveError = false;
-    GUI.drawPopup(renderer, tr(STR_SAVE_PROGRESS_FAILED));
-  };
-
   const auto showBuildError = [this]() {
     renderer.clearScreen();
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
@@ -1330,7 +1324,6 @@ void EpubReaderActivity::renderBook() {
     renderStatusBar();
     renderer.displayBuffer();
     automaticPageTurnActive = false;
-    showPendingSyncSaveError();
     return;
   }
 
@@ -1340,7 +1333,6 @@ void EpubReaderActivity::renderBook() {
     renderStatusBar();
     renderer.displayBuffer();
     automaticPageTurnActive = false;
-    showPendingSyncSaveError();
     return;
   }
 
@@ -1361,11 +1353,9 @@ void EpubReaderActivity::renderBook() {
         renderer.clearScreen();
         renderer.drawCenteredText(UI_12_FONT_ID, 300, tr(STR_PAGE_LOAD_ERROR), true, EpdFontFamily::BOLD);
         renderer.displayBuffer();
-        showPendingSyncSaveError();
         return;
       }
       requestUpdate();
-      showPendingSyncSaveError();
       return;
     }
     pageLoadRetryCount = 0;
@@ -1397,8 +1387,6 @@ void EpubReaderActivity::renderBook() {
     }
   }
 
-  showPendingSyncSaveError();
-
   if (pendingScreenshot) {
     pendingScreenshot = false;
     ScreenshotUtil::takeScreenshot(renderer);
@@ -1429,13 +1417,7 @@ void EpubReaderActivity::renderBook() {
   }
 }
 
-void EpubReaderActivity::onEndOfBookRendered() {
-  automaticPageTurnActive = false;
-  if (pendingSyncSaveError) {
-    pendingSyncSaveError = false;
-    GUI.drawPopup(renderer, tr(STR_SAVE_PROGRESS_FAILED));
-  }
-}
+void EpubReaderActivity::onEndOfBookRendered() { automaticPageTurnActive = false; }
 
 bool EpubReaderActivity::applyDeferredReposition() {
   if ((!cachedVisibleTextOffset.has_value() && cachedChapterTotalPageCount == 0) || !section || section->isBuilding()) {
