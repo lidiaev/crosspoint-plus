@@ -9,6 +9,8 @@
 
 #include "NoteEditorActivity.h"
 #include "activities/ActivityManager.h"
+#include "activities/RenderLock.h"
+#include "activities/util/ConfirmationActivity.h"
 #include "activities/util/KeyboardEntryActivity.h"
 #include "components/UITheme.h"
 #include "components/UiAppHelpers.h"
@@ -62,7 +64,7 @@ void NotesListActivity::rebuildRows() {
     fui::ListItem item;
     item.label = note.title.c_str();
     if (!note.preview.empty()) item.subtitle = note.preview.c_str();
-    item.icon = listIconFor(UIIcon::Text, 32);
+    item.icon = note.pinned ? fui::bitmapFromIcon(icon_pinned_32) : listIconFor(UIIcon::Text, 32);
     item.actionValue = static_cast<int16_t>(rows.size());
     rows.push_back(item);
   }
@@ -73,6 +75,7 @@ const char* NotesListActivity::headerTitle() const { return searchTitle.empty() 
 // Back clears an active search first, then leaves for home.
 void NotesListActivity::onBackButton() {
   if (!query.empty()) {
+    RenderLock lock;
     query.clear();
     applyFilter();
     moveSelectionTo(0);
@@ -92,6 +95,7 @@ void NotesListActivity::openSearch() {
   }
   startActivityForResult(std::move(keyboard), [this](const ActivityResult& result) {
     if (result.isCancelled) return;
+    RenderLock lock;
     query = std::get<KeyboardResult>(result.data).text;
     applyFilter();
     moveSelectionTo(0);
@@ -154,16 +158,80 @@ void NotesListActivity::buildScreen(UiScreen& screen) {
   props.items = rows.data();
   props.count = static_cast<uint16_t>(rows.size());
   props.action = ACTION_ROW;
-  props.inputMask = fui::InputTouch;
+  props.inputMask = fui::InputTouch | fui::InputLongPress;
   syncListViewport(screen, props);
   screen.list(props);
+}
+
+// Row 0 is "New note" unless a search hides it.
+int NotesListActivity::noteAt(const int index) const {
+  const int shownIndex = query.empty() ? index - 1 : index;
+  return shownIndex < 0 || shownIndex >= static_cast<int>(shown.size()) ? -1 : shown[shownIndex];
 }
 
 void NotesListActivity::activateIndex(const int index) {
   if (index < 0 || index >= listCount()) return;
   app.clearTapFlash();
-  // Row 0 is "New note" unless a search hides it.
-  const int shownIndex = query.empty() ? index - 1 : index;
-  std::string path = shownIndex < 0 ? std::string() : notesList[shown[shownIndex]].path;
+  const int note = noteAt(index);
+  std::string path = note < 0 ? std::string() : notesList[note].path;
   activityManager.replaceActivity(std::make_unique<NoteEditorActivity>(renderer, mappedInput, std::move(path)));
+}
+
+// Re-reads /notes after a change; the caller holds the render lock.
+void NotesListActivity::reload() {
+  notesList = notes::list();
+  applyFilter();
+  moveSelectionTo(0);
+}
+
+void NotesListActivity::onRowLongPress(const int index) {
+  const int i = noteAt(index);
+  if (i < 0) return;
+  const notes::NoteInfo note = notesList[i];
+  const char* options[] = {tr(STR_OPEN), note.pinned ? tr(STR_UNPIN_NOTE) : tr(STR_PIN_NOTE), tr(STR_DELETE)};
+  app.clearTapFlash();
+  optionPopup.show(tr(STR_NOTES), note.title.c_str(), options, 3, 0, [this, index, note](const int choice) {
+    switch (choice) {
+      case 0:
+        activateIndex(index);
+        break;
+      case 1: {
+        RenderLock lock;
+        if (!notes::setPinned(note.path, !note.pinned)) LOG_ERR("NOTES", "Cannot pin %s", note.path.c_str());
+        reload();
+        break;
+      }
+      case 2:
+        promptDelete(note);
+        break;
+      default:
+        break;
+    }
+  });
+  requestUpdate();
+}
+
+void NotesListActivity::promptDelete(const notes::NoteInfo& note) {
+  auto confirmation =
+      makeUniqueNoThrow<ConfirmationActivity>(renderer, mappedInput, tr(STR_DELETE) + std::string("? "), note.title);
+  if (!confirmation) {
+    LOG_ERR("NOTES", "OOM: delete confirmation");
+    return;
+  }
+  startActivityForResult(std::move(confirmation), [this, path = note.path](const ActivityResult& result) {
+    if (result.isCancelled) return;
+    RenderLock lock;
+    if (!notes::remove(path)) LOG_ERR("NOTES", "Cannot delete %s", path.c_str());
+    reload();
+  });
+}
+
+bool NotesListActivity::handleCustomInput() {
+  return optionPopup.handleInput(mappedInput, [this] { requestUpdate(); });
+}
+
+// The option popup owns the whole frame while it is up.
+void NotesListActivity::render(RenderLock&& lock) {
+  if (optionPopup.processRender(renderer, mappedInput)) return;
+  UiListActivity::render(std::move(lock));
 }

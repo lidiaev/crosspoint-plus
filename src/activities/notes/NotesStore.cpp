@@ -14,6 +14,35 @@ constexpr size_t PREVIEW_BYTES = 120;
 constexpr size_t NAME_BYTES = 120;
 constexpr size_t TITLE_FILE_CHARS = 48;  // bytes of the title kept in a file name
 
+constexpr const char* PINS_PATH = "/notes/.pinned";
+
+std::string nameOf(const std::string& path) {
+  const size_t slash = path.rfind('/');
+  return slash == std::string::npos ? path : path.substr(slash + 1);
+}
+
+std::vector<std::string> loadPins() {
+  std::vector<std::string> pins;
+  std::string data;
+  if (!Storage.exists(PINS_PATH) || !load(PINS_PATH, data)) return pins;
+  pins.reserve(8);
+  size_t start = 0;
+  while (start < data.size()) {
+    size_t end = data.find('\n', start);
+    if (end == std::string::npos) end = data.size();
+    if (end > start) pins.emplace_back(data, start, end - start);
+    start = end + 1;
+  }
+  return pins;
+}
+
+bool savePins(const std::vector<std::string>& pins) {
+  std::string data;
+  for (const auto& name : pins) data += name + "\n";
+  if (data.empty()) return !Storage.exists(PINS_PATH) || Storage.remove(PINS_PATH);
+  return save(PINS_PATH, data);
+}
+
 // Characters FAT and the web UI reject in names are replaced by spaces.
 bool unsafeNameChar(const char c) {
   return c == '/' || c == '\\' || c == ':' || c == '*' || c == '?' || c == '"' || c == '<' || c == '>' || c == '|' ||
@@ -69,6 +98,7 @@ std::string previewOf(const std::string& text, const size_t maxBytes) {
 
 std::vector<NoteInfo> list() {
   std::vector<NoteInfo> out;
+  const std::vector<std::string> pins = loadPins();
   Storage.ensureDirectoryExists(DIR);
   auto dir = Storage.open(DIR);
   if (!dir || !dir.isDirectory()) return out;
@@ -95,9 +125,11 @@ std::vector<NoteInfo> list() {
       info.title.assign(name, strlen(name) - 3);  // file name without ".md"
     }
     info.modified = f.modificationTime();
+    info.pinned = std::find(pins.begin(), pins.end(), name) != pins.end();
     out.push_back(std::move(info));
   }
   std::sort(out.begin(), out.end(), [](const NoteInfo& a, const NoteInfo& b) {
+    if (a.pinned != b.pinned) return a.pinned;
     if (a.modified != b.modified) return a.modified > b.modified;
     return a.path < b.path;
   });
@@ -141,7 +173,34 @@ bool save(const std::string& path, const std::string& text) {
   return Storage.rename(tmp.c_str(), path.c_str());
 }
 
-bool remove(const std::string& path) { return Storage.remove(path.c_str()); }
+bool remove(const std::string& path) {
+  setPinned(path, false);
+  return Storage.remove(path.c_str());
+}
+
+bool setPinned(const std::string& path, const bool pinned) {
+  std::vector<std::string> pins = loadPins();
+  const std::string name = nameOf(path);
+  const auto it = std::find(pins.begin(), pins.end(), name);
+  if ((it != pins.end()) == pinned) return true;
+  if (pinned) {
+    pins.push_back(name);
+  } else {
+    pins.erase(it);
+  }
+  return savePins(pins);
+}
+
+bool move(const std::string& from, const std::string& to, const std::string& text) {
+  if (!save(to, text)) return false;
+  std::vector<std::string> pins = loadPins();
+  const auto it = std::find(pins.begin(), pins.end(), nameOf(from));
+  if (it != pins.end()) {
+    *it = nameOf(to);
+    savePins(pins);
+  }
+  return Storage.remove(from.c_str());
+}
 
 std::string pathFor(const std::string& text, const std::string& current) {
   std::string base = titleOf(text);

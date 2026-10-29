@@ -68,10 +68,7 @@ void NoteEditorActivity::onExit() {
   // Keep the file name in step with the first line.
   if (!path.empty()) {
     const std::string desired = notes::pathFor(text, path);
-    if (desired != path && notes::save(desired, text)) {
-      notes::remove(path);
-      path = desired;
-    }
+    if (desired != path && notes::move(path, desired, text)) path = desired;
   }
   fast_typing::disable();
   Activity::onExit();

@@ -5,15 +5,18 @@
 
 #include "NotesStore.h"
 #include "activities/UiListActivity.h"
+#include "components/OptionPopup.h"
 
 // Home > Notes: "New note" followed by the notes in /notes, newest first.
-// The header searches titles and text, like the Library's.
+// The header searches titles and text, like the Library's. Holding a note
+// opens its menu: open, pin or unpin, delete.
 class NotesListActivity final : public UiListActivity {
  public:
   NotesListActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
-      : UiListActivity("NotesList", renderer, mappedInput) {}
+      : UiListActivity("NotesList", renderer, mappedInput, true) {}
 
   void onEnter() override;
+  void render(RenderLock&& lock) override;
 
  protected:
   int listCount() const override { return static_cast<int>(rows.size()); }
@@ -23,6 +26,8 @@ class NotesListActivity final : public UiListActivity {
   void onBackButton() override;
   void drawChrome() override {}
   void drawFooter() override {}
+  void onRowLongPress(int index) override;
+  bool handleCustomInput() override;
 
  private:
   static constexpr freeink::ui::ActionId ACTION_SEARCH = ACTION_USER;
@@ -34,6 +39,11 @@ class NotesListActivity final : public UiListActivity {
   std::string query;
   std::string searchTitle;  // the query, quoted for the header
 
+  OptionPopup optionPopup;
+
+  int noteAt(int index) const;  // notesList index of a row, -1 for "New note"
+  void reload();
+  void promptDelete(const notes::NoteInfo& note);
   void applyFilter();
   void rebuildRows();
   void openSearch();
