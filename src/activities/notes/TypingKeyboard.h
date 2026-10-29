@@ -33,6 +33,8 @@ class TypingKeyboard {
 
   // Input task: the key nearest to (x, y), if the point is on the keyboard.
   bool keyAt(int x, int y, int16_t& value) const;
+  // The character a long press on this key types instead (е → ё), or 0.
+  static int16_t alternateOf(int16_t value);
 
  private:
   static constexpr uint8_t ROWS = 4;
@@ -44,6 +46,7 @@ class TypingKeyboard {
   bool shifted = false;
   bool capsLock = false;
   bool symbols = false;
+  bool symbolsMore = false;  // the second symbols page (#+=)
   uint32_t lastShiftAt = 0;
   char glyphs[ROWS][COLS][4] = {};
   freeink::ui::KeyboardKey keys[ROWS][COLS] = {};

@@ -22,7 +22,10 @@ constexpr const char* RU_LOWER[3] = {"й ц у к е н г ш щ з х ъ", "ф 
 constexpr const char* RU_UPPER[3] = {"Й Ц У К Е Н Г Ш Щ З Х Ъ", "Ф Ы В А П Р О Л Д Ж Э", "Я Ч С М И Т Ь Б Ю"};
 constexpr const char* EN_LOWER[3] = {"q w e r t y u i o p", "a s d f g h j k l", "z x c v b n m"};
 constexpr const char* EN_UPPER[3] = {"Q W E R T Y U I O P", "A S D F G H J K L", "Z X C V B N M"};
-constexpr const char* SYMBOLS[3] = {"1 2 3 4 5 6 7 8 9 0", "- / : ; ( ) « » @ \"", "№ % + = ? ! '"};
+// iPhone-like symbol pages. Only characters the UI font has: it is also the note font.
+constexpr const char* SYMBOLS[3] = {"1 2 3 4 5 6 7 8 9 0", "- / : ; ( ) « » @ \"", "— & ? ! ' …"};
+constexpr const char* SYMBOLS_MORE[3] = {"[ ] { } # % ^ * + =", "_ \\ | ~ < > € $ £ •", "` ° § × ≈ ≠"};
+constexpr int16_t KEY_SYMBOL_PAGE = -10;  // "#+=" / "123" on the symbol pages
 
 int decodeUtf8(const char* s, int16_t& cp) {
   const uint8_t c = static_cast<uint8_t>(s[0]);
@@ -110,14 +113,16 @@ fui::Rect TypingKeyboard::rect(const GfxRenderer& renderer) const {
 // every layer, so switching language or symbols never moves it.
 void TypingKeyboard::build() {
   const bool upper = shifted || capsLock;
-  const char* const* src = symbols ? SYMBOLS : english ? (upper ? EN_UPPER : EN_LOWER) : (upper ? RU_UPPER : RU_LOWER);
+  const char* const* src = symbols   ? (symbolsMore ? SYMBOLS_MORE : SYMBOLS)
+                           : english ? (upper ? EN_UPPER : EN_LOWER)
+                                     : (upper ? RU_UPPER : RU_LOWER);
   for (uint8_t r = 0; r < 3; ++r) {
     uint8_t n = 0;
     if (r == 2) {
-      keys[r][n++] = symbols
-                         ? fui::KeyboardKey{"#", "#", fui::KeyKind::Normal, fui::StateNormal, '#', 3, true}
-                         : fui::KeyboardKey{
-                               nullptr, nullptr, fui::KeyKind::Shift, fui::StateNormal, fui::QWERTY_KEY_SHIFT, 3, true};
+      keys[r][n++] =
+          symbols ? fui::KeyboardKey{nullptr, nullptr, fui::KeyKind::Normal, fui::StateNormal, KEY_SYMBOL_PAGE, 3, true}
+                  : fui::KeyboardKey{nullptr, nullptr, fui::KeyKind::Shift, fui::StateNormal, fui::QWERTY_KEY_SHIFT,
+                                     3,       true};
     }
     for (const char* p = src[r]; *p && n < COLS - 1;) {
       if (*p == ' ') {
@@ -167,11 +172,18 @@ TypingKeyboard::Action TypingKeyboard::press(const int16_t value, const uint32_t
       return Action::LayoutChanged;
     case fui::QWERTY_KEY_MODE:
       symbols = !symbols;
+      symbolsMore = false;
       shifted = false;
+      build();
+      return Action::LayoutChanged;
+    case KEY_SYMBOL_PAGE:
+      symbolsMore = !symbolsMore;
       build();
       return Action::LayoutChanged;
     case fui::QWERTY_KEY_LANG:
       english = !english;
+      symbols = false;
+      symbolsMore = false;
       build();
       return Action::LayoutChanged;
     case fui::QWERTY_KEY_BACKSPACE:
@@ -248,7 +260,16 @@ void TypingKeyboard::draw(const GfxRenderer& renderer, const int16_t pressed) {
           drawLabel(renderer, SMALL_FONT_ID, cx, cy, english ? "space" : "пробел", ink);
           break;
         default:
+          if (key.value == KEY_SYMBOL_PAGE) {
+            drawLabel(renderer, SMALL_FONT_ID, cx, cy, symbolsMore ? "123" : "#+=", ink);
+            break;
+          }
           drawLabel(renderer, UI_12_FONT_ID, cx, cy, key.label, ink);
+          if (alternateOf(key.value) != 0) {
+            // Corner hint that a long press types the alternate letter.
+            renderer.drawText(SMALL_FONT_ID, x + w - renderer.getTextWidth(SMALL_FONT_ID, "ё") - 3, y - 2,
+                              upper ? "Ё" : "ё", ink);
+          }
           break;
       }
       fui::Interaction hit;
@@ -280,4 +301,15 @@ bool TypingKeyboard::keyAt(const int x, const int y, int16_t& value) const {
     }
   }
   return best <= MAX_DISTANCE * MAX_DISTANCE;
+}
+
+int16_t TypingKeyboard::alternateOf(const int16_t value) {
+  switch (value) {
+    case 0x0435:      // е
+      return 0x0451;  // ё
+    case 0x0415:      // Е
+      return 0x0401;  // Ё
+    default:
+      return 0;
+  }
 }

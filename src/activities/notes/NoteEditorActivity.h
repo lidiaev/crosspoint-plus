@@ -25,7 +25,7 @@ class NoteEditorActivity final : public Activity {
   bool skipLoopDelay() override { return true; }
 
  private:
-  enum class EventType : uint8_t { Key, TapText, ToggleKeyboard, ScrollUp, ScrollDown, Back };
+  enum class EventType : uint8_t { Key, Alternate, TapText, ToggleKeyboard, ScrollUp, ScrollDown, ScrollBy };
   struct Event {
     EventType type;
     int16_t value;
@@ -50,7 +50,15 @@ class NoteEditorActivity final : public Activity {
   uint32_t liftedAt = 0;
   bool wasDown = false;
   uint32_t nextRepeatAt = 0;
-  uint32_t repeatFor = 0;  // downMs of the Backspace press being repeated
+  uint32_t repeatFor = 0;     // downMs of the Backspace press being repeated
+  uint32_t alternateFor = 0;  // downMs of the е press that may turn into ё
+  // A finger that landed on the text: a tap places the cursor on lift, a drag scrolls.
+  int8_t dragSlot = -1;
+  uint32_t dragDownMs = 0;
+  int16_t dragStartX = 0;
+  int16_t dragStartY = 0;
+  int16_t dragAppliedY = 0;  // finger y the scroll position already follows
+  bool dragMoved = false;
 
   // Render task state.
   std::string path;
@@ -69,6 +77,8 @@ class NoteEditorActivity final : public Activity {
   void applyKey(int16_t value, uint32_t downMs, bool& layoutChanged);
   void insertText(const char* utf8);
   void deleteBackward();
+  void applyAlternate(int16_t value);
+  void trackDrag(uint32_t now, bool& update);
   void placeCursor(int x, int y);
 
   int headerHeight() const;

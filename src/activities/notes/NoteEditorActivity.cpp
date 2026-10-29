@@ -7,6 +7,7 @@
 #include <Memory.h>
 
 #include <algorithm>
+#include <cstdlib>
 #include <cstring>
 
 #include "FastTyping.h"
@@ -28,6 +29,8 @@ constexpr int TEXT_FONT = UI_12_FONT_ID;
 constexpr uint32_t CLEANUP_IDLE_MS = 1200;  // idle repaint + autosave after this pause
 constexpr uint32_t RESTORE_IDLE_MS = 300;   // the pressed key returns to normal after this pause
 constexpr uint32_t REPEAT_DELAY_MS = 450;
+constexpr uint32_t ALTERNATE_DELAY_MS = 450;  // long press on е types ё
+constexpr int DRAG_SLOP = 16;                 // px a finger moves before a tap becomes a drag
 
 size_t decode(const std::string& s, size_t i, uint32_t& cp) {
   const uint8_t c = static_cast<uint8_t>(s[i]);
@@ -128,14 +131,6 @@ void NoteEditorActivity::loop() {
     enqueue(Event{EventType::ScrollDown, 0, 0, 0, now});
     update = true;
   }
-  if (!keyboardShown.load()) {
-    const auto swipe = mappedInput.wasSwipe();
-    if (swipe == MappedInputManager::SwipeDir::Up || swipe == MappedInputManager::SwipeDir::Down) {
-      enqueue(
-          Event{swipe == MappedInputManager::SwipeDir::Up ? EventType::ScrollDown : EventType::ScrollUp, 0, 0, 0, now});
-      update = true;
-    }
-  }
 
   // Idle work: return the pressed key to normal, then clear residue and save.
   const uint32_t shownAt = pressedShownAt.load();
@@ -170,12 +165,34 @@ void NoteEditorActivity::loop() {
         repeatFor = p.downMs;
         nextRepeatAt = p.downMs + REPEAT_DELAY_MS;
       }
+      if (TypingKeyboard::alternateOf(value) != 0) alternateFor = p.downMs;
       enqueue(Event{EventType::Key, value, p.x, p.y, p.downMs});
       update = true;
-    } else if (p.y >= textTop() && p.y < textBottom()) {
-      enqueue(Event{EventType::TapText, 0, p.x, p.y, p.downMs});
-      update = true;
+    } else if (p.y >= textTop() && p.y < textBottom() && dragSlot < 0) {
+      dragSlot = static_cast<int8_t>(touch.pressSlot(i));
+      dragDownMs = p.downMs;
+      dragStartX = p.x;
+      dragStartY = dragAppliedY = p.y;
+      dragMoved = false;
     }
+  }
+  trackDrag(now, update);
+
+  // Holding е long enough turns it into ё, like the iPhone's long-press menu.
+  if (alternateFor != 0) {
+    TouchTracker::Held held{};
+    bool still = false;
+    for (const int16_t base : {int16_t{0x0435}, int16_t{0x0415}}) {
+      if (touch.heldValue(base, held) && held.downMs == alternateFor) {
+        still = true;
+        if (now - held.downMs >= ALTERNATE_DELAY_MS) {
+          enqueue(Event{EventType::Alternate, base, held.x, held.y, now});
+          alternateFor = 0;
+          update = true;
+        }
+      }
+    }
+    if (!still) alternateFor = 0;
   }
 
   // Holding Backspace repeats, faster the longer it is held.
@@ -189,6 +206,29 @@ void NoteEditorActivity::loop() {
   if (wasDown && !touch.anyDown()) liftedAt = now;
   wasDown = touch.anyDown();
   if (update) requestUpdate();
+}
+
+// A finger on the text drags it line by line; lifting it without a drag is a tap.
+void NoteEditorActivity::trackDrag(const uint32_t now, bool& update) {
+  if (dragSlot < 0) return;
+  int16_t x = 0;
+  int16_t y = 0;
+  if (!touch.position(static_cast<uint8_t>(dragSlot), dragDownMs, x, y)) {
+    if (!dragMoved) {
+      enqueue(Event{EventType::TapText, 0, dragStartX, dragStartY, now});
+      update = true;
+    }
+    dragSlot = -1;
+    return;
+  }
+  if (!dragMoved && std::abs(y - dragStartY) < DRAG_SLOP && std::abs(x - dragStartX) < DRAG_SLOP) return;
+  dragMoved = true;
+  const int lineHeight = renderer.getLineHeight(TEXT_FONT);
+  const int lines = (dragAppliedY - y) / lineHeight;  // finger up = text up = later lines
+  if (lines == 0) return;
+  dragAppliedY = static_cast<int16_t>(dragAppliedY - lines * lineHeight);
+  enqueue(Event{EventType::ScrollBy, static_cast<int16_t>(lines), x, y, now});
+  update = true;
 }
 
 // --- render task ---------------------------------------------------------------
@@ -284,6 +324,20 @@ void NoteEditorActivity::deleteBackward() {
   dirty = true;
 }
 
+// Replaces the е just typed with ё when the key is held.
+void NoteEditorActivity::applyAlternate(const int16_t value) {
+  char base[4] = {};
+  char alt[4] = {};
+  const int16_t alternate = TypingKeyboard::alternateOf(value);
+  base[0] = static_cast<char>(0xC0 | (value >> 6));
+  base[1] = static_cast<char>(0x80 | (value & 0x3F));
+  alt[0] = static_cast<char>(0xC0 | (alternate >> 6));
+  alt[1] = static_cast<char>(0x80 | (alternate & 0x3F));
+  if (cursor < 2 || text.compare(cursor - 2, 2, base) != 0) return;
+  text.replace(cursor - 2, 2, alt);
+  dirty = true;
+}
+
 void NoteEditorActivity::applyKey(const int16_t value, const uint32_t downMs, bool& layoutChanged) {
   char out[4] = {};
   switch (keyboard.press(value, downMs, out)) {
@@ -338,6 +392,9 @@ void NoteEditorActivity::handleEvent(const Event& event, bool& layoutChanged) {
       pressedKey = event.value;
       keepCursorVisible();
       break;
+    case EventType::Alternate:
+      applyAlternate(event.value);
+      break;
     case EventType::TapText:
       placeCursor(event.x, event.y);
       if (!keyboardShown.load()) {
@@ -358,7 +415,8 @@ void NoteEditorActivity::handleEvent(const Event& event, bool& layoutChanged) {
       topLine =
           std::min(std::max(0, static_cast<int>(lineStarts.size()) - visibleLines()), topLine + visibleLines() - 1);
       break;
-    case EventType::Back:
+    case EventType::ScrollBy:
+      topLine = std::clamp(topLine + event.value, 0, std::max(0, static_cast<int>(lineStarts.size()) - visibleLines()));
       break;
   }
 }
@@ -416,7 +474,7 @@ void NoteEditorActivity::render(RenderLock&&) {
   int events = 0;
   Event event{};
   while (popEvent(event)) {
-    if (event.type == EventType::Key) ++keyEvents;
+    if (event.type == EventType::Key || event.type == EventType::Alternate) ++keyEvents;
     ++events;
     handleEvent(event, layoutChanged);
   }
@@ -446,7 +504,8 @@ void NoteEditorActivity::render(RenderLock&&) {
   }
   const uint32_t done = millis();
 
-  if (keyEvents > 0 || release) lastEditFrameAt = done;
+  // Any fast frame (typing, scrolling) leaves residue for the idle cleanup.
+  if (events > 0 || release) lastEditFrameAt = done;
   if (cleanup || whole) lastEditFrameAt = 0;
   pressedShownAt = pressedKey != INT16_MIN ? done : 0;
   if (releaseFrame.load()) requestUpdate();

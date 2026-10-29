@@ -33,6 +33,8 @@ class TouchTracker {
   uint8_t pressSlot(uint8_t i) const { return pressSlots[i]; }
   // The finger holding a key with this value, if any.
   bool heldValue(int16_t value, Held& held) const;
+  // Where the finger that pressed in `slot` at `downMs` is now; false once it lifted.
+  bool position(uint8_t slot, uint32_t downMs, int16_t& x, int16_t& y) const;
 
  private:
   struct Track {

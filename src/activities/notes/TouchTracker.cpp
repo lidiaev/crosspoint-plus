@@ -73,3 +73,12 @@ bool TouchTracker::heldValue(const int16_t value, Held& held) const {
   }
   return false;
 }
+
+bool TouchTracker::position(const uint8_t slot, const uint32_t downMs, int16_t& x, int16_t& y) const {
+  if (slot >= MAX_TRACKS) return false;
+  const Track& t = tracks[slot];
+  if (!t.active || t.since != downMs) return false;
+  x = t.x;
+  y = t.y;
+  return true;
+}
