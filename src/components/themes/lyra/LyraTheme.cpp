@@ -20,10 +20,9 @@
 #include "components/icons/folder.h"
 #include "components/icons/hotspot.h"
 #include "components/icons/library.h"
-#include "components/icons/notes.h"
+#include "components/icons/notesIcons.h"
 #include "components/icons/recent.h"
 #include "components/icons/settings2.h"
-#include "components/icons/transfer.h"
 #include "components/icons/wifi.h"
 #include "fontIds.h"
 
@@ -48,7 +47,7 @@ const uint8_t* iconForName(UIIcon icon) {
     case UIIcon::Settings:
       return Settings2Icon;
     case UIIcon::Transfer:
-      return TransferIcon;
+      return icon_home_transfer_32.bits;
     case UIIcon::Library:
       return LibraryIcon;
     case UIIcon::Wifi:
@@ -60,7 +59,7 @@ const uint8_t* iconForName(UIIcon icon) {
     case UIIcon::Blocks:
       return BlocksIcon;
     case UIIcon::Notes:
-      return NotesIcon;
+      return icon_home_notes_32.bits;
     default:
       return nullptr;
   }
