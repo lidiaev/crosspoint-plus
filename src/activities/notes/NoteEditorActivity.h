@@ -23,7 +23,7 @@ class NoteEditorActivity final : public Activity {
   void onExit() override;
   void loop() override;
   void render(RenderLock&&) override;
-  bool skipLoopDelay() override { return true; }
+  bool skipLoopDelay() override;
 
  private:
   enum class EventType : uint8_t { Key, Alternate, TapText, ToggleKeyboard, ScrollUp, ScrollDown, ScrollBy };
@@ -48,6 +48,7 @@ class NoteEditorActivity final : public Activity {
   std::atomic<uint32_t> pressedShownAt{0};   // 0 = no key shown inverted
   std::atomic<bool> keyboardShown{true};
   TouchTracker touch;
+  uint32_t lastInputAt = 0;  // last touch or key, for skipLoopDelay
   uint32_t liftedAt = 0;
   bool wasDown = false;
   uint32_t nextRepeatAt = 0;

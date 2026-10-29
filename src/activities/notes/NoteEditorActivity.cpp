@@ -33,6 +33,7 @@ constexpr int CODE_PAD = 6;                 // a backtick's width: room for the 
 constexpr uint32_t CLEANUP_IDLE_MS = 1200;  // idle repaint + autosave after this pause
 constexpr uint32_t RESTORE_IDLE_MS = 300;   // the pressed key returns to normal after this pause
 constexpr uint32_t REPEAT_DELAY_MS = 450;
+constexpr uint32_t TYPING_ACTIVE_MS = 2000;   // full-speed loop after the last touch
 constexpr uint32_t ALTERNATE_DELAY_MS = 450;  // long press on е types ё
 constexpr int DRAG_SLOP = 16;                 // px a finger moves before a tap becomes a drag
 
@@ -175,6 +176,7 @@ void NoteEditorActivity::loop() {
 
   TouchTracker::Press presses[4];
   const uint8_t count = touch.poll(renderer, now, presses, 4);
+  if (count > 0 || touch.anyDown()) lastInputAt = now;
   const int width = renderer.getScreenWidth();
   for (uint8_t i = 0; i < count; ++i) {
     const TouchTracker::Press& p = presses[i];
@@ -257,6 +259,13 @@ void NoteEditorActivity::trackDrag(const uint32_t now, bool& update) {
   dragAppliedY = static_cast<int16_t>(dragAppliedY - lines * lineHeight);
   enqueue(Event{EventType::ScrollBy, static_cast<int16_t>(lines), x, y, now});
   update = true;
+}
+
+// The main loop spins without pauses only while typing; between bursts it may
+// idle and lower the CPU clock. Pending idle frames keep it awake until drawn.
+bool NoteEditorActivity::skipLoopDelay() {
+  return touch.anyDown() || millis() - lastInputAt < TYPING_ACTIVE_MS || queueTail.load() != queueHead.load() ||
+         releaseFrame.load() || cleanupFrame.load() || pressedShownAt.load() != 0 || lastEditFrameAt.load() != 0;
 }
 
 // --- render task ---------------------------------------------------------------

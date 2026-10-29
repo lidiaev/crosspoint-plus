@@ -30,7 +30,7 @@ class KeyboardEntryActivity : public Activity {
   void loop() override;
   void render(RenderLock&&) override;
   bool preventAutoSleep() override { return true; }
-  bool skipLoopDelay() override { return true; }
+  bool skipLoopDelay() override;
 
  private:
   enum class EventType : uint8_t { Key, Alternate, TogglePassword, TapField, Done };
@@ -58,6 +58,7 @@ class KeyboardEntryActivity : public Activity {
   std::atomic<uint32_t> lastEditFrameAt{0};
   std::atomic<uint32_t> pressedShownAt{0};
   TouchTracker touch;
+  uint32_t lastInputAt = 0;  // last touch or key, for skipLoopDelay
   uint32_t liftedAt = 0;
   bool wasDown = false;
   uint32_t nextRepeatAt = 0;

@@ -22,6 +22,7 @@ constexpr int ICON = 32;
 constexpr uint32_t CLEANUP_IDLE_MS = 1200;
 constexpr uint32_t RESTORE_IDLE_MS = 300;
 constexpr uint32_t REPEAT_DELAY_MS = 450;
+constexpr uint32_t TYPING_ACTIVE_MS = 2000;  // full-speed loop after the last touch
 constexpr uint32_t ALTERNATE_DELAY_MS = 450;
 constexpr const char* MASK = "•";
 
@@ -99,6 +100,7 @@ void KeyboardEntryActivity::loop() {
 
   TouchTracker::Press presses[4];
   const uint8_t count = touch.poll(renderer, now, presses, 4);
+  if (count > 0 || touch.anyDown()) lastInputAt = now;
   const auto& metrics = UITheme::getInstance().getMetrics();
   const int headerBottom = metrics.topPadding + metrics.headerHeight;
   for (uint8_t i = 0; i < count; ++i) {
@@ -152,6 +154,13 @@ void KeyboardEntryActivity::loop() {
   if (wasDown && !touch.anyDown()) liftedAt = now;
   wasDown = touch.anyDown();
   if (update) requestUpdate();
+}
+
+// The main loop spins without pauses only while typing; between bursts it may
+// idle and lower the CPU clock. Pending idle frames keep it awake until drawn.
+bool KeyboardEntryActivity::skipLoopDelay() {
+  return touch.anyDown() || millis() - lastInputAt < TYPING_ACTIVE_MS || queueTail.load() != queueHead.load() ||
+         releaseFrame.load() || cleanupFrame.load() || pressedShownAt.load() != 0 || lastEditFrameAt.load() != 0;
 }
 
 // --- render task ---------------------------------------------------------------
