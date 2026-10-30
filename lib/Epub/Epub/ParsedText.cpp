@@ -1384,6 +1384,8 @@ void ParsedText::extractLine(const size_t breakIndex, const int pageWidth, const
   lineWords.reserve(lineWordCount);
   std::vector<EpdFontFamily::Style> lineWordStyles;
   lineWordStyles.reserve(lineWordCount);
+  std::vector<uint32_t> lineWordOffsets;
+  lineWordOffsets.reserve(lineWordCount);
 
   for (size_t i = 0; i < lineWordCount; ++i) {
     // Copy out of the arena: TextBlock construction and bidi reorder below
@@ -1395,6 +1397,7 @@ void ParsedText::extractLine(const size_t breakIndex, const int pageWidth, const
     }
     lineWords.push_back(std::move(word));
     lineWordStyles.push_back(wordStyles[lastBreakAt + i]);
+    lineWordOffsets.push_back(visibleOffsetAt(lastBreakAt + i));
   }
 
   // Calculate total word width for this line, count actual word gaps,
@@ -1584,6 +1587,10 @@ void ParsedText::extractLine(const size_t breakIndex, const int pageWidth, const
 
     lineWords.swap(reorderedWordsScratch);
     lineWordStyles.swap(reorderedStylesScratch);
+    std::vector<uint32_t> visualWordOffsets;
+    visualWordOffsets.reserve(lineWordOffsets.size());
+    for (const uint16_t src : visualOrderScratch) visualWordOffsets.push_back(lineWordOffsets[src]);
+    lineWordOffsets.swap(visualWordOffsets);
   } else {
     // Standard LTR/RTL positioning loop when no visual reordering is needed
     if (blockStyle.isRtl) {
@@ -1726,7 +1733,7 @@ void ParsedText::extractLine(const size_t breakIndex, const int pageWidth, const
     // TextBlock flattens the vectors into its arena; they stay owned here and die at return.
     auto block = makeUniqueNoThrow<TextBlock>(lineWords, lineXPos, lineWordStyles, std::vector<uint8_t>{},
                                               std::vector<uint16_t>{}, blockStyle, std::move(lineRubyTexts),
-                                              std::move(lineLinks));
+                                              std::move(lineLinks), lineWordOffsets);
     if (!block || !block->valid()) {
       LOG_ERR("PTX", "Dropping line: TextBlock or arena allocation failed");
       // Latch through the same flag as addWord() OOM: the caller releases the
@@ -1754,7 +1761,7 @@ void ParsedText::extractLine(const size_t breakIndex, const int pageWidth, const
   }
 
   auto block = makeUniqueNoThrow<TextBlock>(lineWords, lineXPos, lineWordStyles, outBoundaries, outSuffixX, blockStyle,
-                                            std::move(lineRubyTexts), std::move(lineLinks));
+                                            std::move(lineRubyTexts), std::move(lineLinks), lineWordOffsets);
   if (!block || !block->valid()) {
     LOG_ERR("PTX", "Dropping line: TextBlock or arena allocation failed");
     droppedWords = true;  // see the non-focus branch above

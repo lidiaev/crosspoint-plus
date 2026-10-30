@@ -11,7 +11,15 @@ constexpr int RADIUS = 12;
 constexpr int POINTER = 9;  // height of the pointer triangle
 constexpr int GAP = 14;     // from the line to the pointer tip: room for the handle knob
 constexpr int EDGE = 8;     // from the screen edges
+constexpr int KNOB = 10;
 }  // namespace
+
+void SelectionCallout::drawHandle(const GfxRenderer& renderer, const int x, const int y, const int rowHeight,
+                                  const bool start) {
+  renderer.fillRect(x - 1, y, 2, rowHeight);
+  const int knobY = start ? y - KNOB : y + rowHeight;
+  renderer.fillRoundedRect(x - KNOB / 2, knobY, KNOB, KNOB, KNOB / 2, Color::Black);
+}
 
 void SelectionCallout::place(const int items, const int startX, const int startTop, const int endX, const int endBottom,
                              const int areaTop, const int areaBottom, const int screenWidth) {

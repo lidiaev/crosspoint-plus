@@ -17,6 +17,8 @@ class SelectionCallout {
   void place(int items, int startX, int startTop, int endX, int endBottom, int areaTop, int areaBottom,
              int screenWidth);
   void hide() { count = 0; }
+  // iPhone-style selection handle: a bar on the boundary with a knob above the start or below the end.
+  static void drawHandle(const GfxRenderer& renderer, int x, int y, int rowHeight, bool start);
   bool shown() const { return count > 0; }
   void draw(const GfxRenderer& renderer, const freeink::Icon* const icons[]) const;
   // The item under a point, or -1.

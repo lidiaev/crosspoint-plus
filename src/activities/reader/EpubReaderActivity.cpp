@@ -20,6 +20,8 @@
 #include <limits>
 
 #include "../../util/BookmarkFile.h"
+#include "BookHighlightsActivity.h"
+#include "BookSelectionActivity.h"
 #include "BookmarkEntry.h"
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
@@ -309,7 +311,39 @@ void EpubReaderActivity::showBuildPopup(GfxRenderer& renderer, int& pagesUntilFu
   buildPopupPending = false;
 }
 
-void EpubReaderActivity::openDictionaryWordSelect() {
+void EpubReaderActivity::openBookSelection(const int x, const int y, const int existing) {
+  if (!section || !epub) return;
+  auto page = section->loadPage(section->currentPage);
+  if (!page) return;
+
+  int orientedMarginTop, orientedMarginRight, orientedMarginBottom, orientedMarginLeft;
+  renderer.getOrientedViewableTRBL(&orientedMarginTop, &orientedMarginRight, &orientedMarginBottom,
+                                   &orientedMarginLeft);
+  orientedMarginTop += SETTINGS.screenMargin;
+  orientedMarginLeft += SETTINGS.screenMargin;
+
+  BookSelectionActivity::Book book;
+  book.path = epub->getPath();
+  book.title = epub->getTitle();
+  book.spine = currentSpineIndex;
+  const float chapterProgress = section->estimatedTotalPages() > 0
+                                    ? static_cast<float>(section->currentPage) / section->estimatedTotalPages()
+                                    : 0.0f;
+  book.percent = static_cast<uint8_t>(
+      std::clamp(epub->calculateProgress(currentSpineIndex, chapterProgress) * 100.0f + 0.5f, 0.0f, 100.0f));
+  startActivityForResult(
+      std::make_unique<BookSelectionActivity>(renderer, mappedInput, std::move(page), orientedMarginLeft,
+                                              orientedMarginTop, std::move(book), bookHighlights, x, y, existing),
+      [this](const ActivityResult& result) {
+        if (const auto* lookup = std::get_if<LookupResult>(&result.data)) {
+          openDictionaryWordSelect(lookup->x, lookup->y);
+          return;
+        }
+        requestUpdate();
+      });
+}
+
+void EpubReaderActivity::openDictionaryWordSelect(const int lookupX, const int lookupY) {
   if (SETTINGS.dictionaryName[0] == '\0') {
     showDictionaryMessage = true;
     dictionaryMessageTime = millis();
@@ -326,9 +360,10 @@ void EpubReaderActivity::openDictionaryWordSelect() {
   orientedMarginTop += SETTINGS.screenMargin;
   orientedMarginLeft += SETTINGS.screenMargin;
 
-  startActivityForResult(std::make_unique<DictionaryWordSelectActivity>(renderer, mappedInput, std::move(page),
-                                                                        orientedMarginLeft, orientedMarginTop),
-                         [this](const ActivityResult&) { requestUpdate(); });
+  auto wordSelect = std::make_unique<DictionaryWordSelectActivity>(renderer, mappedInput, std::move(page),
+                                                                   orientedMarginLeft, orientedMarginTop);
+  if (lookupX >= 0) wordSelect->lookupAt(lookupX, lookupY);
+  startActivityForResult(std::move(wordSelect), [this](const ActivityResult&) { requestUpdate(); });
 }
 
 void EpubReaderActivity::openFootnoteSelect(const bool reopenMenuOnCancel) {
@@ -580,6 +615,24 @@ void EpubReaderActivity::loop() {
         return;
       default:
         break;
+    }
+  }
+
+  // Holding a word opens the text selection; a tap on a highlight opens it.
+  if (!atEndOfBook && section && mappedInput.hasTouch()) {
+    int touchX = 0;
+    int touchY = 0;
+    if (mappedInput.wasScreenLongPress(touchX, touchY)) {
+      openBookSelection(touchX, touchY, -1);
+      return;
+    }
+    if (!pageMarks.empty() && mappedInput.wasScreenTapped(touchX, touchY)) {
+      for (const highlights::Mark& mark : pageMarks) {
+        if (touchX >= mark.x && touchX < mark.x + mark.width && touchY >= mark.y && touchY < mark.y + mark.height) {
+          openBookSelection(touchX, touchY, mark.entry);
+          return;
+        }
+      }
     }
   }
 
@@ -925,6 +978,12 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
           progressChangeResultHandler);
       break;
     }
+    case EpubReaderMenuActivity::MenuAction::HIGHLIGHTS: {
+      startActivityForResult(
+          std::make_unique<BookHighlightsActivity>(renderer, mappedInput, epub->getPath(), epub->getTitle()),
+          progressChangeResultHandler);
+      break;
+    }
     case EpubReaderMenuActivity::MenuAction::TOGGLE_BOOKMARK: {
       addBookmark();
       break;
@@ -1082,6 +1141,7 @@ bool EpubReaderActivity::skipLoopDelay() {
 
 void EpubReaderActivity::renderBook() {
   currentPageLinks.clear();
+  pageMarks.clear();
   if (!epub) return;
   // Runs under the render task's RenderLock; catches every requestUpdate()
   // exit from the overlay while its deferred chrome refresh is still pending.
@@ -1365,6 +1425,8 @@ void EpubReaderActivity::renderBook() {
     currentPageLinks = std::move(p->links);
     currentPageLinkMarginLeft = orientedMarginLeft;
     currentPageLinkMarginTop = orientedMarginTop;
+    highlights::collectMarks(renderer, *p, SETTINGS.getReaderFontId(), orientedMarginLeft, orientedMarginTop,
+                             currentSpineIndex, bookHighlights, pageMarks);
 
     // The overlay and non-tiled grayscale renderer share the renderer's single
     // stored-BW slot. Release the old page snapshot before renderContents()
@@ -1498,7 +1560,9 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   const bool manualRefreshPending = forcedRefreshPending;
   forcedRefreshPending = false;
   const bool cleanImageBasePending = manualRefreshPending || pagesUntilFullRefresh <= 1;
-  const bool needsTextGrayscale = SETTINGS.textAntiAliasing;
+  // Gray glyph edges would smear on inverted highlights: such a page stays pure black and white.
+  const bool invertedMarks = !pageMarks.empty() && SETTINGS.selectionStyle == CrossPointSettings::SELECTION_INVERT;
+  const bool needsTextGrayscale = SETTINGS.textAntiAliasing && !invertedMarks;
   const bool needsAnyGrayscale = needsTextGrayscale || pageHasImages;
   const bool absoluteImageGrayscale = pageHasImages && !gpio.deviceIsX3() &&
                                       display.getController() == HalDisplay::Controller::UC8279 &&
@@ -1519,7 +1583,10 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
     } else {
       page->renderImages(renderer, fontId, orientedMarginLeft, orientedMarginTop);
     }
-    if (absoluteImageGrayscale) renderStatusBar();
+    if (absoluteImageGrayscale) {
+      highlights::drawMarks(renderer, pageMarks, bookHighlights);
+      renderStatusBar();
+    }
   };
 
   if (pageHasImagesNeedingDecode) {
@@ -1530,6 +1597,7 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   }
 
   page->render(renderer, fontId, orientedMarginLeft, orientedMarginTop);
+  highlights::drawMarks(renderer, pageMarks, bookHighlights);
   renderStatusBar();
   const auto tBwRender = millis();
 
@@ -2533,6 +2601,7 @@ void EpubReaderActivity::loadCachedBookmarks() {
 
   BookmarkFile::load(epub->getPath(), cachedBookmarks);
   updateBookmarkFlag();
+  if (!highlights::load(epub->getPath(), bookHighlights)) LOG_ERR("ERS", "Failed to load highlights");
 }
 
 void EpubReaderActivity::addBookmark() {

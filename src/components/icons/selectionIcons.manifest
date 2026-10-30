@@ -2,8 +2,13 @@
 #   python3 freeink-sdk/libs/assets/Icons/tools/gen_icons.py \
 #     --manifest src/components/icons/selectionIcons.manifest \
 #     --svgdir freeink-sdk/libs/assets/Icons/lucide/icons \
-#     --sizes 24 --out src/components/icons/selectionIcons.h
+#     --sizes 14,24 --out src/components/icons/selectionIcons.h
 sel-copy = copy
 sel-cut = scissors
 sel-paste = clipboard-paste
 sel-select-all = square-dashed-text
+sel-highlight = highlighter
+sel-comment = message-square-text
+sel-dictionary = book-a
+sel-delete = trash-2
+sel-badge = message-square

@@ -153,7 +153,6 @@ class NoteEditorActivity final : public Activity {
   text_select::Range styleTarget() const;
   std::string numberedMarker(size_t paragraphStart) const;
   void drawToolbar() const;
-  void drawHandle(int x, int y, int rowHeight, bool start) const;
   void drawCallout(int startX, int startTop, int endX, int endBottom);
   int lineHeight(int line) const;
   int lineAtY(int y) const;  // wrapped line under screen y (may be past the last line)

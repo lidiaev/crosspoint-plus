@@ -22,6 +22,13 @@ class DictionaryWordSelectActivity final : public Activity {
         marginLeft(marginLeft),
         marginTop(marginTop) {}
 
+  // Looks up the word at this screen point as soon as the screen opens.
+  void lookupAt(const int x, const int y) {
+    pendingLookup = true;
+    lookupX = x;
+    lookupY = y;
+  }
+
   void onEnter() override;
   void loop() override;
   void render(RenderLock&&) override;
@@ -56,6 +63,9 @@ class DictionaryWordSelectActivity final : public Activity {
 
   std::vector<WordBox> words;
   int selected = 0;
+  bool pendingLookup = false;
+  int lookupX = 0;
+  int lookupY = 0;
   uint16_t rowCount = 0;
   unsigned long lastHorizontalMoveTime = 0;
 

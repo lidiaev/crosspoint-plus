@@ -366,3 +366,15 @@ TEST(KoreanLayout, HangulGluedAcrossInlineStyleIsUnbreakable) {
   const std::vector<std::vector<std::string>> expected{{"가나"}, {"한국", "어"}};
   EXPECT_EQ(lines, expected);
 }
+
+TEST_F(ChapterHtmlSlimParserTest, WordsKeepTheirVisibleOffsets) {
+  ParsedText text(false);
+  text.addWord("one", EpdFontFamily::REGULAR, false, false, 100);
+  text.addWord("two", EpdFontFamily::REGULAR, false, false, 104);
+  text.addWord("three", EpdFontFamily::REGULAR, false, false, 110);
+  std::vector<uint32_t> offsets;
+  text.layoutAndExtractLines(renderer, 0, 400, [&](std::unique_ptr<TextBlock> line, auto) {
+    for (uint16_t i = 0; i < line->wordCount(); ++i) offsets.push_back(line->wordVisibleOffset(i));
+  });
+  EXPECT_EQ(offsets, (std::vector<uint32_t>{100, 104, 110}));
+}

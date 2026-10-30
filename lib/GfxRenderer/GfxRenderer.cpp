@@ -644,6 +644,20 @@ void GfxRenderer::drawPixel(const int x, const int y, const bool state) const {
   }
 }
 
+void GfxRenderer::invertRect(const int x, const int y, const int width, const int height) const {
+  if (_stripActive) return;
+  for (int row = y; row < y + height; ++row) {
+    for (int col = x; col < x + width; ++col) {
+      if (col < clipLeft_ || row < clipTop_ || col >= clipRight_ || row >= clipBottom_) continue;
+      int phyX = 0;
+      int phyY = 0;
+      rotateCoordinates(orientation, col, row, &phyX, &phyY, panelWidth, panelHeight);
+      if (phyX < 0 || phyX >= panelWidth || phyY < 0 || phyY >= panelHeight) continue;
+      frameBuffer[static_cast<uint32_t>(phyY) * panelWidthBytes + (phyX / 8)] ^= 1 << (7 - (phyX % 8));
+    }
+  }
+}
+
 int GfxRenderer::getTextWidth(const int fontId, const char* text, const EpdFontFamily::Style style,
                               const BidiUtils::BidiBaseDir baseDir) const {
   if (text == nullptr || *text == '\0') {

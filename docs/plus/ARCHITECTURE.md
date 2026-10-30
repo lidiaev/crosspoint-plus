@@ -30,7 +30,9 @@ flowchart TB
 | `src/activities/ActivityManager` | Стек экранов, поток отрисовки, `RenderLock` |
 | `src/components/themes/lyra` | Единственная тема (Lyra): шапки, меню, иконки главного экрана |
 | `src/components/typing` | Клавиатура, отслеживание пальцев, режим быстрого набора, выделение и буфер обмена — общие для заметок и полей ввода |
-| `src/components/SelectionCallout` | Плашка действий у выделенного текста |
+| `src/components/SelectionCallout` | Плашка действий у выделенного текста и ручки границ |
+| `src/activities/reader/BookHighlights`, `HighlightFormat` | Выделения книги: файл `/notes/highlights/*.md`, поиск на странице, отрисовка |
+| `src/activities/reader/BookSelectionActivity`, `BookHighlightsActivity` | Выделение на странице и список выделений книги |
 | `src/components/icons` | Иконки Lucide. `*.manifest` описывает, как их перегенерировать |
 | `src/activities/notes` | Заметки: список, редактор, Markdown, хранение |
 | `src/activities/util/KeyboardEntryActivity` | Системное поле ввода на нашей клавиатуре |

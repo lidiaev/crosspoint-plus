@@ -40,7 +40,6 @@ constexpr uint32_t LONG_PRESS_MS = 500;       // a held finger selects the word 
 constexpr uint32_t DOUBLE_TAP_MS = 400;
 constexpr int DOUBLE_TAP_SLOP = 30;
 constexpr int HANDLE_REACH = 32;  // px around a selection handle that grab it
-constexpr int HANDLE_KNOB = 10;
 constexpr int16_t OFF_SCREEN = -1000;
 
 size_t decode(const std::string& s, size_t i, uint32_t& cp) {
@@ -946,13 +945,6 @@ void NoteEditorActivity::drawCallout(const int startX, const int startTop, const
   calloutBottom = static_cast<int16_t>(bottom);
 }
 
-// iPhone-style handle: a bar on the boundary with a knob above the start or below the end.
-void NoteEditorActivity::drawHandle(const int x, const int y, const int rowHeight, const bool start) const {
-  renderer.fillRect(x - 1, y, 2, rowHeight);
-  const int knobY = start ? y - HANDLE_KNOB : y + rowHeight;
-  renderer.fillRoundedRect(x - HANDLE_KNOB / 2, knobY, HANDLE_KNOB, HANDLE_KNOB, HANDLE_KNOB / 2, Color::Black);
-}
-
 void NoteEditorActivity::drawGlyph(const uint8_t attr, const int x, const int y, const int rowHeight) {
   switch (note_md::glyphOf(attr)) {
     case note_md::Glyph::Bullet:
@@ -1022,13 +1014,15 @@ void NoteEditorActivity::drawText() {
       return runX + renderer.getTextAdvanceX(fonts[font], run.c_str(),
                                              static_cast<EpdFontFamily::Style>(runAttr & note_md::STYLE_MASK));
     };
-    // Selected text is drawn white on black.
+    // Selected text is white on black or underlined, per the setting.
     const auto flush = [&]() {
       if (run.empty()) return;
-      if (runSelected) renderer.fillRect(runX, y, x - runX, rowHeight);
-      renderer.drawText(fonts[font], runX, y, run.c_str(), !runSelected,
+      const bool inverted = runSelected && SETTINGS.selectionStyle == CrossPointSettings::SELECTION_INVERT;
+      if (inverted) renderer.fillRect(runX, y, x - runX, rowHeight);
+      renderer.drawText(fonts[font], runX, y, run.c_str(), !inverted,
                         static_cast<EpdFontFamily::Style>(runAttr & note_md::STYLE_MASK));
-      if (runAttr & note_md::STRIKE) renderer.fillRect(runX, y + rowHeight * 11 / 20, x - runX, 2, !runSelected);
+      if (runAttr & note_md::STRIKE) renderer.fillRect(runX, y + rowHeight * 11 / 20, x - runX, 2, !inverted);
+      if (runSelected && !inverted) renderer.fillRect(runX, y + rowHeight - 2, x - runX, 2);
       run.clear();
     };
     for (size_t i = start; i < end;) {
@@ -1078,14 +1072,14 @@ void NoteEditorActivity::drawText() {
       }
     }
     if (l == startLine) {
-      drawHandle(selStartX, y, rowHeight, true);
+      SelectionCallout::drawHandle(renderer, selStartX, y, rowHeight, true);
       startX = static_cast<int16_t>(selStartX);
       startY = static_cast<int16_t>(y + rowHeight / 2);
       anchorStartX = selStartX;
       anchorTop = y;
     }
     if (l == endLine) {
-      drawHandle(selEndX, y, rowHeight, false);
+      SelectionCallout::drawHandle(renderer, selEndX, y, rowHeight, false);
       endX = static_cast<int16_t>(selEndX);
       endY = static_cast<int16_t>(y + rowHeight / 2);
       anchorEndX = selEndX;

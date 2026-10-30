@@ -1,11 +1,12 @@
 # Regenerate from the repository root with:
 #   python3 freeink-sdk/libs/assets/Icons/tools/gen_icons.py \
 #     --manifest src/components/icons/formatIcons.manifest \
-#     --svgdir freeink-sdk/libs/assets/Icons/lucide/icons \
+#     --svgdir <dir with the Lucide icons below and src/components/icons/svg/*.svg> \
 #     --sizes 28 --out src/components/icons/formatIcons.h
 # The note toolbar shows what a tap does next.
-fmt-checkbox = square-check-big
-fmt-checkbox-off = square-x
+# *-thin.svg are Lucide icons with the frame moved half a pixel: on a pixel center it rounds to 3 px, the others are 2 px.
+fmt-checkbox = square-check-big-thin
+fmt-checkbox-off = square-x-thin
 fmt-list = list
 fmt-list-ordered = list-ordered
 fmt-list-off = list-x

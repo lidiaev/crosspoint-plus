@@ -230,6 +230,15 @@ void DictionaryWordSelectActivity::performLookup() {
 }
 
 void DictionaryWordSelectActivity::loop() {
+  if (pendingLookup) {
+    pendingLookup = false;
+    const int hit = wordAt(lookupX, lookupY);
+    if (hit >= 0) {
+      selected = hit;
+      performLookup();
+      return;
+    }
+  }
   if (popup == Popup::NotFound || popup == Popup::Error) {
     if (millis() - popupTime >= POPUP_DURATION_MS) {
       popup = Popup::None;

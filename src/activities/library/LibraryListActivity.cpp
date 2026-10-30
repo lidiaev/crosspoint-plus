@@ -16,6 +16,8 @@
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
 #include "RecentBooksStore.h"
+#include "activities/reader/BookHighlights.h"
+#include "activities/reader/BookHighlightsActivity.h"
 #include "activities/util/ConfirmationActivity.h"
 #include "activities/util/KeyboardEntryActivity.h"
 #include "components/UIScale.h"
@@ -272,36 +274,47 @@ void LibraryListActivity::showRecentBookOptions(const int entry) {
     }
   }
 
-  const char* STORE_OPTIONS[] = {tr(STR_OPEN), tr(STR_REMOVE_FROM_RECENTS), tr(STR_DELETE), tr(STR_LIBRARY_REBUILD)};
-  const char* INDEX_OPTIONS[] = {tr(STR_OPEN), tr(STR_DELETE), tr(STR_LIBRARY_REBUILD)};
+  // Highlights come last, and only for a book that has some.
+  const bool hasHighlights = Storage.exists(highlights::pathFor(path).c_str());
+  const char* STORE_OPTIONS[] = {tr(STR_OPEN), tr(STR_REMOVE_FROM_RECENTS), tr(STR_DELETE), tr(STR_LIBRARY_REBUILD),
+                                 tr(STR_HIGHLIGHTS)};
+  const char* INDEX_OPTIONS[] = {tr(STR_OPEN), tr(STR_DELETE), tr(STR_LIBRARY_REBUILD), tr(STR_HIGHLIGHTS)};
+  const int baseOptions = isStoreRow ? 4 : 3;
   app.clearTapFlash();
-  optionPopup.showActions(title.c_str(), isStoreRow ? STORE_OPTIONS : INDEX_OPTIONS, isStoreRow ? 4 : 3,
-                          [this, path, title, isStoreRow](const int choice) {
-                            swallowHeldReleases();
-                            switch (choice) {
-                              case 0:
-                                openBookByPath(path);
-                                break;
-                              case 1:
-                                if (isStoreRow) {
-                                  promptRemoveRecentBook(path, title);
-                                } else {
-                                  promptDeleteBookByPath(path, title);
-                                }
-                                break;
-                              case 2:
-                                if (isStoreRow)
-                                  promptDeleteBookByPath(path, title);
-                                else
-                                  promptRebuildIndex();
-                                break;
-                              case 3:
-                                if (isStoreRow) promptRebuildIndex();
-                                break;
-                              default:
-                                break;
-                            }
-                          });
+  optionPopup.showActions(
+      title.c_str(), isStoreRow ? STORE_OPTIONS : INDEX_OPTIONS, baseOptions + (hasHighlights ? 1 : 0),
+      [this, path, title, isStoreRow, baseOptions](const int choice) {
+        swallowHeldReleases();
+        if (choice == baseOptions) {
+          startActivityForResult(
+              std::make_unique<BookHighlightsActivity>(renderer, mappedInput, path, title, /*opensPlace=*/false),
+              [this](const ActivityResult&) { requestUpdate(); });
+          return;
+        }
+        switch (choice) {
+          case 0:
+            openBookByPath(path);
+            break;
+          case 1:
+            if (isStoreRow) {
+              promptRemoveRecentBook(path, title);
+            } else {
+              promptDeleteBookByPath(path, title);
+            }
+            break;
+          case 2:
+            if (isStoreRow)
+              promptDeleteBookByPath(path, title);
+            else
+              promptRebuildIndex();
+            break;
+          case 3:
+            if (isStoreRow) promptRebuildIndex();
+            break;
+          default:
+            break;
+        }
+      });
   requestUpdate();
 }
 

@@ -67,9 +67,15 @@ struct FilePathResult {
   std::string path;
 };
 
+// The book selection asks the reader to look up the word at a point.
+struct LookupResult {
+  int x = 0;
+  int y = 0;
+};
+
 using ResultVariant =
     std::variant<std::monostate, WifiResult, KeyboardResult, MenuResult, ChapterResult, PercentResult, IntervalResult,
-                 PageResult, ProgressChangeResult, NetworkModeResult, FootnoteResult, FilePathResult>;
+                 PageResult, ProgressChangeResult, NetworkModeResult, FootnoteResult, FilePathResult, LookupResult>;
 
 struct ActivityResult {
   bool isCancelled = false;

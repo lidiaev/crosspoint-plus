@@ -10,6 +10,7 @@
 #include <optional>
 #include <vector>
 
+#include "BookHighlights.h"
 #include "BookmarkEntry.h"
 #include "ChapterPosition.h"
 #include "EpubReaderMenuActivity.h"
@@ -95,6 +96,9 @@ class EpubReaderActivity final : public ReaderActivity {
   std::vector<PageLink> currentPageLinks;
   int currentPageLinkMarginLeft = 0;
   int currentPageLinkMarginTop = 0;
+  // Highlights of this book and the runs of them on the current page.
+  std::vector<highlights::Highlight> bookHighlights;
+  std::vector<highlights::Mark> pageMarks;
   struct SavedPosition {
     int spineIndex;
     int pageNumber;
@@ -162,7 +166,8 @@ class EpubReaderActivity final : public ReaderActivity {
   std::string moreRowValue(int row) const;
   void activateMoreRow(int row);
   void openFootnoteSelect(bool reopenMenuOnCancel);
-  void openDictionaryWordSelect();
+  void openDictionaryWordSelect(int lookupX = -1, int lookupY = -1);
+  void openBookSelection(int x, int y, int existing);
   unsigned long confirmLongPressThreshold() const;
   void toggleAutoPageTurn(uint8_t selectedPageTurnOption);
   void loadCachedBookmarks();

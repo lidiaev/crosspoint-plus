@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cstring>
 
+#include "CrossPointSettings.h"
 #include "MappedInputManager.h"
 #include "components/UITheme.h"
 #include "components/icons/plusIcons.h"
@@ -362,10 +363,12 @@ void KeyboardEntryActivity::drawField() {
     const size_t start = lineStarts[l];
     const size_t end = l + 1 < lines ? lineStarts[l + 1] : shown.size();
     segment.assign(shown, start, end - start);
-    // Select all draws the text white on black, without the cursor.
+    // Select all marks the text per the setting and hides the cursor.
     const int segmentWidth = renderer.getTextAdvanceX(FONT, segment.c_str(), EpdFontFamily::REGULAR);
-    if (allSelected && !segment.empty()) renderer.fillRect(MARGIN, y, segmentWidth, lineHeight);
-    renderer.drawText(FONT, MARGIN, y, segment.c_str(), !allSelected);
+    const bool inverted = allSelected && SETTINGS.selectionStyle == CrossPointSettings::SELECTION_INVERT;
+    if (inverted) renderer.fillRect(MARGIN, y, segmentWidth, lineHeight);
+    renderer.drawText(FONT, MARGIN, y, segment.c_str(), !inverted);
+    if (allSelected && !inverted) renderer.fillRect(MARGIN, y + lineHeight - 2, segmentWidth, 2);
     lastX = MARGIN + segmentWidth;
     if (l == cursorLine) {
       // Measured as drawn (with kerning) and centered on the boundary.

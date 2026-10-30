@@ -21,6 +21,7 @@ class EpubReaderMenuActivity final : public UiListActivity {
     AUTO_PAGE_TURN,
     ROTATE_SCREEN,
     BOOKMARKS,
+    HIGHLIGHTS,
     TOGGLE_BOOKMARK,
     SCREENSHOT,
     DISPLAY_QR,

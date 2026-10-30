@@ -65,6 +65,7 @@ add_subdirectory(chapter_position)
 add_subdirectory(home_button)
 add_subdirectory(note_markdown)
 add_subdirectory(text_selection)
+add_subdirectory(highlight_format)
 
 add_subdirectory(inflate_stream)
 add_subdirectory(fs_helpers)
