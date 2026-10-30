@@ -185,6 +185,48 @@ int headingLevel(const std::string& text, const std::vector<uint8_t>& attrs, con
   return i < text.size() && text[i] == ' ' ? level : 0;
 }
 
+BlockMarker blockMarker(const std::string& text, const size_t start, const size_t end) {
+  BlockMarker marker;
+  size_t i = start;
+  while (i < end && text[i] == ' ') ++i;
+  marker.at = i;
+  if (isCheckbox(text, i, end)) {
+    marker.kind = Block::Checkbox;
+    marker.length = i + 5 < end ? 6 : 5;
+    return marker;
+  }
+  if (isBullet(text, i, end)) {
+    marker.kind = Block::Bullet;
+    marker.length = 2;
+    return marker;
+  }
+  int level = 0;
+  while (i + level < end && text[i + level] == '#' && level < 6) ++level;
+  if (level > 0 && i + level < end && text[i + level] == ' ') {
+    marker.kind = level == 1 ? Block::Heading1 : level == 2 ? Block::Heading2 : Block::Heading;
+    marker.length = level + 1;
+    return marker;
+  }
+  size_t d = i;
+  unsigned number = 0;
+  while (d < end && d - i < 4 && text[d] >= '0' && text[d] <= '9') number = number * 10 + (text[d++] - '0');
+  if (d > i && d + 1 < end && text[d] == '.' && text[d + 1] == ' ') {
+    marker.kind = Block::Numbered;
+    marker.length = d + 2 - i;
+    marker.number = number;
+  }
+  return marker;
+}
+
+int emphasisAround(const std::string& text, const size_t start, const size_t end) {
+  int count = 0;
+  while (count < 3 && start >= static_cast<size_t>(count) + 1 && end + count < text.size() &&
+         text[start - count - 1] == '*' && text[end + count] == '*') {
+    ++count;
+  }
+  return count;
+}
+
 ListPrefix listPrefix(const std::string& text, const size_t start, const size_t end) {
   ListPrefix prefix;
   size_t i = start;

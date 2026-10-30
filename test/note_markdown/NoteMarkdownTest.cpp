@@ -117,3 +117,32 @@ TEST(NoteMarkdown, PlainText) {
   EXPECT_EQ(plainText("- [ ] buy *milk*"), "buy milk");
   EXPECT_EQ(plainText("- eggs"), "• eggs");
 }
+
+TEST(NoteMarkdown, BlockMarkerKinds) {
+  using note_md::Block;
+  const auto kind = [](const std::string& s) { return note_md::blockMarker(s, 0, s.size()).kind; };
+  EXPECT_EQ(kind("plain"), Block::Plain);
+  EXPECT_EQ(kind("- item"), Block::Bullet);
+  EXPECT_EQ(kind("- [ ] task"), Block::Checkbox);
+  EXPECT_EQ(kind("- [x] done"), Block::Checkbox);
+  EXPECT_EQ(kind("# Title"), Block::Heading1);
+  EXPECT_EQ(kind("## Sub"), Block::Heading2);
+  EXPECT_EQ(kind("### Deep"), Block::Heading);
+  EXPECT_EQ(kind("#tag"), Block::Plain);
+  const std::string numbered = "  12. step";
+  const note_md::BlockMarker m = note_md::blockMarker(numbered, 0, numbered.size());
+  EXPECT_EQ(m.kind, Block::Numbered);
+  EXPECT_EQ(m.at, 2u);
+  EXPECT_EQ(m.length, 4u);
+  EXPECT_EQ(m.number, 12u);
+}
+
+TEST(NoteMarkdown, EmphasisAround) {
+  const std::string text = "a **bold** *it* ***both*** ****";
+  EXPECT_EQ(note_md::emphasisAround(text, text.find("bold"), text.find("bold") + 4), 2);
+  EXPECT_EQ(note_md::emphasisAround(text, text.find("it"), text.find("it") + 2), 1);
+  EXPECT_EQ(note_md::emphasisAround(text, text.find("both"), text.find("both") + 4), 3);
+  EXPECT_EQ(note_md::emphasisAround(text, 0, 1), 0);
+  const size_t empty = text.rfind("**");  // between the last "**" and "**"
+  EXPECT_EQ(note_md::emphasisAround(text, empty, empty), 2);
+}

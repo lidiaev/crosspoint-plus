@@ -1,0 +1,18 @@
+# Regenerate from the repository root with:
+#   python3 freeink-sdk/libs/assets/Icons/tools/gen_icons.py \
+#     --manifest src/components/icons/formatIcons.manifest \
+#     --svgdir freeink-sdk/libs/assets/Icons/lucide/icons \
+#     --sizes 28 --out src/components/icons/formatIcons.h
+# The note toolbar shows what a tap does next.
+fmt-checkbox = square-check-big
+fmt-checkbox-off = square-x
+fmt-list = list
+fmt-list-ordered = list-ordered
+fmt-list-off = list-x
+fmt-heading-1 = heading-1
+fmt-heading-2 = heading-2
+fmt-paragraph = pilcrow
+fmt-bold = bold
+fmt-italic = italic
+fmt-plain = remove-formatting
+fmt-keyboard-off = keyboard-off

@@ -13,8 +13,8 @@ constexpr int GAP = 14;     // from the line to the pointer tip: room for the ha
 constexpr int EDGE = 8;     // from the screen edges
 }  // namespace
 
-void SelectionCallout::place(const int items, const int startX, const int startTop, const int endX,
-                             const int endBottom, const int areaTop, const int areaBottom, const int screenWidth) {
+void SelectionCallout::place(const int items, const int startX, const int startTop, const int endX, const int endBottom,
+                             const int areaTop, const int areaBottom, const int screenWidth) {
   count = std::clamp(items, 0, MAX_ITEMS);
   if (count == 0) return;
   const int width = count * ITEM_WIDTH;
@@ -42,7 +42,8 @@ void SelectionCallout::draw(const GfxRenderer& renderer, const freeink::Icon* co
   const int width = count * ITEM_WIDTH;
   renderer.fillRoundedRect(x, y, width, HEIGHT, RADIUS, Color::Black);
   if (pointer) {
-    const int baseY = pointerUp ? y : y + HEIGHT;
+    // The base overlaps the body so no white seam shows between them.
+    const int baseY = pointerUp ? y + 2 : y + HEIGHT - 2;
     const int tipY = pointerUp ? y - POINTER : y + HEIGHT + POINTER;
     const int xs[3] = {pointerX - POINTER, pointerX + POINTER, pointerX};
     const int ys[3] = {baseY, baseY, tipY};

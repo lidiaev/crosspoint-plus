@@ -36,16 +36,16 @@ class NoteEditorActivity final : public Activity {
     DoubleTap,
     LongPress,
     SelectTo,
-    ToggleKeyboard,
     ScrollUp,
     ScrollDown,
     ScrollBy,
     Toolbar,
     Callout
   };
-  // Paragraph markers on the toolbar above the keyboard, edit actions in the callout by the selection.
-  enum class Tool : uint8_t { Checkbox, List, Heading, Copy, Cut, Paste, SelectAll };
-  static constexpr int FORMAT_COUNT = 3;
+  // The toolbar above the keyboard formats the paragraph or word and hides the
+  // keyboard; the callout by the selection edits it.
+  enum class Tool : uint8_t { Checkbox, List, Heading, Style, HideKeyboard, Copy, Cut, Paste, SelectAll };
+  static constexpr int FORMAT_COUNT = 5;
   static constexpr int MAX_ACTIONS = 4;
   // What a finger on the text does: scroll, or move one end of the selection.
   enum class Drag : uint8_t { Scroll, Select, StartHandle, EndHandle };
@@ -149,6 +149,9 @@ class NoteEditorActivity final : public Activity {
   int textBottom() const;
   int toolbarTop() const;
   void applyFormat(Tool format);
+  void applyStyle();
+  text_select::Range styleTarget() const;
+  std::string numberedMarker(size_t paragraphStart) const;
   void drawToolbar() const;
   void drawHandle(int x, int y, int rowHeight, bool start) const;
   void drawCallout(int startX, int startTop, int endX, int endBottom);

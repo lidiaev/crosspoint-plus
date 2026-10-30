@@ -17,7 +17,7 @@
 #include "activities/ActivityManager.h"
 #include "activities/RenderLock.h"
 #include "components/UITheme.h"
-#include "components/icons/keyboardIcons.h"
+#include "components/icons/formatIcons.h"
 #include "components/icons/plusIcons.h"
 #include "components/icons/selectionIcons.h"
 #include "components/typing/FastTyping.h"
@@ -186,17 +186,10 @@ void NoteEditorActivity::loop() {
   TouchTracker::Press presses[4];
   const uint8_t count = touch.poll(renderer, now, presses, 4);
   if (count > 0 || touch.anyDown()) lastInputAt = now;
-  const int width = renderer.getScreenWidth();
   for (uint8_t i = 0; i < count; ++i) {
     const TouchTracker::Press& p = presses[i];
-    if (p.y < headerHeight()) {
-      // The back arrow reaches loop() as Button::Back (HeaderBackTapTarget).
-      if (p.x >= 2 * width / 3) {
-        enqueue(Event{EventType::ToggleKeyboard, 0, p.x, p.y, p.downMs});
-        update = true;
-      }
-      continue;
-    }
+    // The back arrow reaches loop() as Button::Back (HeaderBackTapTarget).
+    if (p.y < headerHeight()) continue;
     // The callout floats over the text and wins over whatever lies under it.
     if (p.x >= calloutLeft.load() && p.x < calloutRight.load() && p.y >= calloutTop.load() &&
         p.y < calloutBottom.load()) {
@@ -524,49 +517,35 @@ void NoteEditorActivity::applyKey(const int16_t value, const uint32_t downMs, bo
   }
 }
 
-// The marker that opens the paragraph with the cursor: a checkbox, a bullet or a
-// heading. Each toolbar button toggles its own kind and replaces the others,
-// like the format buttons in Apple Notes.
+// Each toolbar button steps the paragraph with the cursor through its kinds and
+// replaces other markers: checkbox on and off; bullet, numbered, plain;
+// heading 1, heading 2, plain.
 void NoteEditorActivity::applyFormat(const Tool format) {
   const size_t nl = cursor == 0 ? std::string::npos : text.rfind('\n', cursor - 1);
   const size_t start = nl == std::string::npos ? 0 : nl + 1;
   size_t end = text.find('\n', start);
   if (end == std::string::npos) end = text.size();
-  size_t at = start;
-  while (at < end && text[at] == ' ') ++at;
+  const note_md::BlockMarker block = note_md::blockMarker(text, start, end);
+  const size_t at = block.at;
+  const size_t oldLength = block.length;
 
-  const auto isBulletChar = [](const char c) { return c == '-' || c == '*' || c == '+'; };
-  const bool bullet = at + 1 < end && isBulletChar(text[at]) && text[at + 1] == ' ';
-  const bool box = bullet && at + 4 < end && text[at + 2] == '[' && text[at + 4] == ']' &&
-                   (text[at + 3] == ' ' || text[at + 3] == 'x' || text[at + 3] == 'X');
-  int level = 0;
-  while (at + level < end && text[at + level] == '#' && level < 6) ++level;
-  if (at + level >= end || text[at + level] != ' ') level = 0;
-
-  size_t oldLength = 0;
-  if (box) {
-    oldLength = at + 5 < end && text[at + 5] == ' ' ? 6 : 5;
-  } else if (bullet) {
-    oldLength = 2;
-  } else if (level > 0) {
-    oldLength = level + 1;
-  }
-
-  const char* marker = "";
+  std::string marker;
   switch (format) {
     case Tool::Checkbox:
-      marker = box ? "" : "- [ ] ";
+      marker = block.kind == note_md::Block::Checkbox ? "" : "- [ ] ";
       break;
     case Tool::List:
-      marker = bullet && !box ? "" : "- ";
+      marker = block.kind == note_md::Block::Bullet     ? numberedMarker(start)
+               : block.kind == note_md::Block::Numbered ? ""
+                                                        : "- ";
       break;
     case Tool::Heading:
-      marker = level == 0 ? "# " : level == 1 ? "## " : "";
+      marker = block.kind == note_md::Block::Heading1 ? "## " : block.kind == note_md::Block::Heading2 ? "" : "# ";
       break;
     default:
       return;
   }
-  const size_t newLength = strlen(marker);
+  const size_t newLength = marker.size();
   if (text.size() - oldLength + newLength > notes::MAX_NOTE_BYTES) return;
   text.replace(at, oldLength, marker);
   if (cursor >= at + oldLength) {
@@ -574,6 +553,58 @@ void NoteEditorActivity::applyFormat(const Tool format) {
   } else if (cursor > at) {
     cursor = at + newLength;
   }
+  dirty = true;
+  styleStale = true;
+}
+
+// A numbered item continues the numbered paragraph right above it.
+std::string NoteEditorActivity::numberedMarker(const size_t paragraphStart) const {
+  unsigned number = 1;
+  if (paragraphStart > 0) {
+    const size_t prevEnd = paragraphStart - 1;
+    const size_t nl = prevEnd == 0 ? std::string::npos : text.rfind('\n', prevEnd - 1);
+    const size_t prevStart = nl == std::string::npos ? 0 : nl + 1;
+    const note_md::BlockMarker prev = note_md::blockMarker(text, prevStart, prevEnd);
+    if (prev.kind == note_md::Block::Numbered) number = prev.number + 1;
+  }
+  return std::to_string(number) + ". ";
+}
+
+// What the style button formats: the selection, else the word at the cursor,
+// else nothing (an empty range at the cursor, for markers to type into).
+text_select::Range NoteEditorActivity::styleTarget() const {
+  if (hasSelection()) return selection;
+  const text_select::Range word = text_select::wordAt(text, cursor);
+  if (!word.empty()) {
+    uint32_t cp = 0;
+    decode(text, word.start, cp);
+    if (text_select::isWordChar(cp)) return word;
+  }
+  return {cursor, cursor};
+}
+
+// Bold, then italic, then plain.
+void NoteEditorActivity::applyStyle() {
+  const text_select::Range before = styleTarget();
+  text_select::Range target = before;
+  const int level = note_md::emphasisAround(text, target.start, target.end);
+  const int remove = level == 2 ? 1 : level;  // bold loses one star and becomes italic
+  const int add = level == 0 ? 2 : 0;
+  if (text.size() + 2 * add > notes::MAX_NOTE_BYTES) return;
+  if (remove > 0) {
+    text.erase(target.end, remove);
+    text.erase(target.start - remove, remove);
+    target.start -= remove;
+    target.end -= remove;
+  }
+  if (add > 0) {
+    text.insert(target.end, add, '*');
+    text.insert(target.start, add, '*');
+    target.start += add;
+    target.end += add;
+  }
+  cursor = target.start + (cursor - before.start);
+  if (hasSelection()) selection = anchor = target;
   dirty = true;
   styleStale = true;
 }
@@ -703,19 +734,20 @@ void NoteEditorActivity::selectTo(const Drag handle, const int x, const int y) {
 }
 
 void NoteEditorActivity::paste() {
+  pasteMenu = false;
+  if (clipboard::empty()) return;  // nothing copied yet: keep the selection
   eraseSelection();
   insertText(clipboard::get().c_str());
   pasteMenu = false;
 }
 
-// The callout's actions for the current state, left to right; none without a selection or Paste offer.
+// The callout's actions, left to right: the same four over any selection; none without a selection or Paste offer.
 int NoteEditorActivity::actions(Tool out[MAX_ACTIONS]) const {
   int n = 0;
   if (hasSelection()) {
     out[n++] = Tool::Copy;
-    // Cut and Paste change the text: only while editing.
-    if (keyboardShown.load()) out[n++] = Tool::Cut;
-    if (keyboardShown.load() && !clipboard::empty()) out[n++] = Tool::Paste;
+    out[n++] = Tool::Cut;
+    out[n++] = Tool::Paste;
     out[n++] = Tool::SelectAll;
   } else if (pasteMenu) {
     out[n++] = Tool::Paste;
@@ -731,6 +763,14 @@ void NoteEditorActivity::applyTool(const Tool tool) {
     case Tool::Heading:
       clearSelection();
       applyFormat(tool);
+      break;
+    case Tool::Style:
+      applyStyle();
+      break;
+    case Tool::HideKeyboard:
+      keyboardShown = false;
+      pasteMenu = false;
+      fullRedraw = true;
       break;
     case Tool::Copy:
       clipboard::set(text.substr(selection.start, selection.end - selection.start));
@@ -777,7 +817,7 @@ void NoteEditorActivity::handleEvent(const Event& event, bool& layoutChanged) {
     case EventType::LongPress: {
       // Holding the cursor with something copied offers Paste instead of selecting.
       const size_t at = offsetAt(event.x, event.y);
-      if (event.type == EventType::LongPress && keyboardShown.load() && !hasSelection() && !clipboard::empty() &&
+      if (event.type == EventType::LongPress && !hasSelection() && !clipboard::empty() &&
           (at == cursor || text_select::wordAt(text, at).empty())) {
         pasteMenu = true;
       } else {
@@ -787,12 +827,6 @@ void NoteEditorActivity::handleEvent(const Event& event, bool& layoutChanged) {
     }
     case EventType::SelectTo:
       selectTo(static_cast<Drag>(event.value), event.x, event.y);
-      break;
-    case EventType::ToggleKeyboard:
-      pasteMenu = false;
-      keyboardShown = !keyboardShown.load();
-      fullRedraw = true;
-      keepCursorVisible();
       break;
     case EventType::ScrollUp:
       topLine = std::max(0, topLine - std::max(1, linesFrom(std::max(0, topLine - 1)) - 1));
@@ -804,7 +838,8 @@ void NoteEditorActivity::handleEvent(const Event& event, bool& layoutChanged) {
       topLine = std::clamp(topLine + event.value, 0, maxTopLine());
       break;
     case EventType::Toolbar: {
-      static constexpr Tool FORMATS[FORMAT_COUNT] = {Tool::Checkbox, Tool::List, Tool::Heading};
+      static constexpr Tool FORMATS[FORMAT_COUNT] = {Tool::Checkbox, Tool::List, Tool::Heading, Tool::Style,
+                                                     Tool::HideKeyboard};
       applyTool(FORMATS[std::clamp(event.x * FORMAT_COUNT / renderer.getScreenWidth(), 0, FORMAT_COUNT - 1)]);
       if (autoCapitalize()) layoutChanged = true;
       keepCursorVisible();
@@ -835,21 +870,40 @@ void NoteEditorActivity::saveNow() {
   if (notes::save(path, text)) dirty = false;
 }
 
-// The system header: status band, back arrow and a keyboard toggle. No title:
-// the list already says "Notes" and the note's first line names it.
+// The system header: status band and back arrow. No title: the list already
+// says "Notes" and the note's first line names it.
 void NoteEditorActivity::drawHeader() const {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  GUI.drawHeaderWithAction(renderer, Rect{0, metrics.topPadding, renderer.getScreenWidth(), metrics.headerHeight}, "",
-                           keyboardShown.load() ? icon_keyboard_off_32 : icon_keyboard_32);
+  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, renderer.getScreenWidth(), metrics.headerHeight}, "");
 }
 
+// Each button shows what a tap does next.
 void NoteEditorActivity::drawToolbar() const {
-  static const freeink::Icon* const ICONS[FORMAT_COUNT] = {&icon_fmt_checkbox_28, &icon_fmt_list_28,
-                                                           &icon_fmt_heading_28};
+  const size_t nl = cursor == 0 ? std::string::npos : text.rfind('\n', cursor - 1);
+  const size_t start = nl == std::string::npos ? 0 : nl + 1;
+  size_t end = text.find('\n', start);
+  if (end == std::string::npos) end = text.size();
+  const note_md::Block block = note_md::blockMarker(text, start, end).kind;
+  const text_select::Range target = styleTarget();
+  const int emphasis = note_md::emphasisAround(text, target.start, target.end);
+
+  const freeink::Icon* icons[FORMAT_COUNT] = {
+      block == note_md::Block::Checkbox ? &icon_fmt_checkbox_off_28 : &icon_fmt_checkbox_28,
+      block == note_md::Block::Bullet     ? &icon_fmt_list_ordered_28
+      : block == note_md::Block::Numbered ? &icon_fmt_list_off_28
+                                          : &icon_fmt_list_28,
+      block == note_md::Block::Heading1   ? &icon_fmt_heading_2_28
+      : block == note_md::Block::Heading2 ? &icon_fmt_paragraph_28
+                                          : &icon_fmt_heading_1_28,
+      emphasis == 0   ? &icon_fmt_bold_28
+      : emphasis == 2 ? &icon_fmt_italic_28
+                      : &icon_fmt_plain_28,
+      &icon_fmt_keyboard_off_28,
+  };
   const int top = toolbarTop();
   const int width = renderer.getScreenWidth();
   for (int i = 0; i < FORMAT_COUNT; ++i) {
-    const freeink::Icon& icon = *ICONS[i];
+    const freeink::Icon& icon = *icons[i];
     const int cx = width * (2 * i + 1) / (2 * FORMAT_COUNT);
     renderer.drawIconUpright(icon.bits, cx - icon.w / 2, top + (TOOLBAR_HEIGHT - icon.h) / 2, icon.w, icon.h);
   }
@@ -878,6 +932,8 @@ void NoteEditorActivity::drawCallout(const int startX, const int startTop, const
       case Tool::Checkbox:
       case Tool::List:
       case Tool::Heading:
+      case Tool::Style:
+      case Tool::HideKeyboard:
         break;
     }
   }

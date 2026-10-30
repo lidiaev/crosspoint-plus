@@ -40,6 +40,21 @@ struct ListPrefix {
 };
 ListPrefix listPrefix(const std::string& text, size_t start, size_t end);
 
+// The marker that opens the paragraph [start, end): its kind, where it starts
+// (after the indent) and its length with the space after it.
+enum class Block : uint8_t { Plain, Bullet, Numbered, Checkbox, Heading1, Heading2, Heading };
+struct BlockMarker {
+  Block kind = Block::Plain;
+  size_t at = 0;
+  size_t length = 0;
+  unsigned number = 0;  // for Numbered
+};
+BlockMarker blockMarker(const std::string& text, size_t start, size_t end);
+
+// Emphasis around [start, end): the count of matching '*' on both sides, 0-3
+// (1 italic, 2 bold, 3 bold italic).
+int emphasisAround(const std::string& text, size_t start, size_t end);
+
 // The text as shown, without markup: list bullets stay as "•", other glyphs go.
 std::string plainText(const std::string& text);
 

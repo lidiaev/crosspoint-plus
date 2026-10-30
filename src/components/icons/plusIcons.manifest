@@ -4,8 +4,6 @@
 #     --svgdir freeink-sdk/libs/assets/Icons/lucide/icons \
 #     --sizes 32 --out src/components/icons/plusIcons.h
 note-new = plus
-keyboard = keyboard
-keyboard-off = keyboard-off
 done = check
 show-password = eye
 hide-password = eye-off
