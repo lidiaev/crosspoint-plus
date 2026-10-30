@@ -37,9 +37,7 @@ constexpr uint32_t TYPING_ACTIVE_MS = 2000;   // full-speed loop after the last 
 constexpr uint32_t ALTERNATE_DELAY_MS = 450;  // long press on е types ё
 constexpr int DRAG_SLOP = 16;                 // px a finger moves before a tap becomes a drag
 constexpr uint32_t LONG_PRESS_MS = 500;       // a held finger selects the word under it
-constexpr uint32_t DOUBLE_TAP_MS = 400;
-constexpr int DOUBLE_TAP_SLOP = 30;
-constexpr int HANDLE_REACH = 32;  // px around a selection handle that grab it
+constexpr int HANDLE_REACH = 32;              // px around a selection handle that grab it
 constexpr int16_t OFF_SCREEN = -1000;
 
 size_t decode(const std::string& s, size_t i, uint32_t& cp) {
@@ -269,20 +267,15 @@ void NoteEditorActivity::loop() {
 }
 
 // A finger on the text drags it line by line; lifting it without a drag is a tap,
-// two quick taps select a word, and holding it selects a word and then extends
-// the selection as it moves. A finger on a selection handle moves that end.
+// and holding it selects a word and then extends the selection as it moves. A
+// finger on a selection handle moves that end.
 void NoteEditorActivity::trackDrag(const uint32_t now, bool& update) {
   if (dragSlot < 0) return;
   int16_t x = 0;
   int16_t y = 0;
   if (!touch.position(static_cast<uint8_t>(dragSlot), dragDownMs, x, y)) {
     if (!dragMoved && dragMode == Drag::Scroll) {
-      const bool second = now - lastTapAt < DOUBLE_TAP_MS && std::abs(dragStartX - lastTapX) < DOUBLE_TAP_SLOP &&
-                          std::abs(dragStartY - lastTapY) < DOUBLE_TAP_SLOP;
-      enqueue(Event{second ? EventType::DoubleTap : EventType::TapText, 0, dragStartX, dragStartY, now});
-      lastTapAt = second ? 0 : now;
-      lastTapX = dragStartX;
-      lastTapY = dragStartY;
+      enqueue(Event{EventType::TapText, 0, dragStartX, dragStartY, now});
       update = true;
     }
     dragSlot = -1;
@@ -304,7 +297,6 @@ void NoteEditorActivity::trackDrag(const uint32_t now, bool& update) {
       grabDy = 0;
       sentX = x;
       sentY = y;
-      lastTapAt = 0;
       update = true;
     }
     return;
@@ -812,12 +804,10 @@ void NoteEditorActivity::handleEvent(const Event& event, bool& layoutChanged) {
       }
       keepCursorVisible();
       break;
-    case EventType::DoubleTap:
     case EventType::LongPress: {
       // Holding the cursor with something copied offers Paste instead of selecting.
       const size_t at = offsetAt(event.x, event.y);
-      if (event.type == EventType::LongPress && !hasSelection() && !clipboard::empty() &&
-          (at == cursor || text_select::wordAt(text, at).empty())) {
+      if (!hasSelection() && !clipboard::empty() && (at == cursor || text_select::wordAt(text, at).empty())) {
         pasteMenu = true;
       } else {
         selectWord(event.x, event.y);

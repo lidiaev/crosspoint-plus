@@ -33,7 +33,6 @@ class NoteEditorActivity final : public Activity {
     Key,
     Alternate,
     TapText,
-    DoubleTap,
     LongPress,
     SelectTo,
     ScrollUp,
@@ -87,9 +86,6 @@ class NoteEditorActivity final : public Activity {
   int16_t grabDy = 0;  // from the finger to the line its handle follows
   int16_t sentX = 0;   // last position sent as SelectTo
   int16_t sentY = 0;
-  uint32_t lastTapAt = 0;  // for double taps
-  int16_t lastTapX = 0;
-  int16_t lastTapY = 0;
   // Where the render task drew the selection handles (a point on each boundary's line), for grabbing them.
   std::atomic<bool> selectionShown{false};
   std::atomic<int16_t> startHandleX{0};

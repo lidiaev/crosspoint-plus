@@ -46,12 +46,12 @@ bool load(const std::string& bookPath, std::vector<Highlight>& entries) {
   text.erase(std::remove(text.begin(), text.end(), '\r'), text.end());
   std::string title;
   parse(text, title, entries);
-  sortByPosition(entries);
+  mergeOverlapping(entries);
   return true;
 }
 
 bool save(const std::string& bookPath, const std::string& title, std::vector<Highlight>& entries) {
-  sortByPosition(entries);
+  mergeOverlapping(entries);
   Storage.ensureDirectoryExists(notes::DIR);
   Storage.ensureDirectoryExists(DIR);
   return notes::save(pathFor(bookPath), format(title, entries));
@@ -100,12 +100,13 @@ void collectMarks(GfxRenderer& renderer, const Page& page, const int fontId, con
       const int x = line->xPos + block->wordXpos(i) + marginLeft;
       const int right = x + renderer.getTextAdvanceX(fontId, block->wordText(i), block->wordStyle(i), tracking);
       if (!open) {
-        run = Mark{static_cast<int16_t>(x), static_cast<int16_t>(y), 0, static_cast<int16_t>(lineHeight),
-                   static_cast<int16_t>(entry), false};
+        run = Mark{static_cast<int16_t>(x),          static_cast<int16_t>(y),     0,
+                   static_cast<int16_t>(lineHeight), static_cast<int16_t>(entry), false};
         open = true;
       }
       run.width = static_cast<int16_t>(right - run.x);
-      const bool lastWord = i + 1 == block->wordCount() || entryAt(entries, spine, block->wordVisibleOffset(i + 1)) != entry;
+      const bool lastWord =
+          i + 1 == block->wordCount() || entryAt(entries, spine, block->wordVisibleOffset(i + 1)) != entry;
       run.endsHighlight = lastWord && offset + block->wordTextLen(i) >= entries[entry].end - 1;
     }
     if (open) out.push_back(run);

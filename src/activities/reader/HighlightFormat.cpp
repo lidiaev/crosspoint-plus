@@ -21,6 +21,17 @@ std::string oneLine(std::string s) {
   return s;
 }
 
+// The text after the first `count` code points.
+std::string skipCodePoints(const std::string& s, size_t count) {
+  size_t at = 0;
+  while (at < s.size() && count > 0) {
+    ++at;
+    while (at < s.size() && (static_cast<unsigned char>(s[at]) & 0xC0) == 0x80) ++at;
+    --count;
+  }
+  return s.substr(at);
+}
+
 bool parseAnchor(const std::string& line, Highlight& entry) {
   int spine = 0;
   unsigned long start = 0;
@@ -41,6 +52,33 @@ void sortByPosition(std::vector<Highlight>& entries) {
     if (a.spine != b.spine) return a.spine < b.spine;
     return a.start < b.start;
   });
+}
+
+void mergeOverlapping(std::vector<Highlight>& entries) {
+  sortByPosition(entries);
+  size_t kept = 0;
+  for (size_t i = 1; i < entries.size(); ++i) {
+    Highlight& merged = entries[kept];
+    Highlight& next = entries[i];
+    if (merged.spine < 0 || next.spine != merged.spine || next.start >= merged.end) {
+      if (++kept != i) entries[kept] = std::move(next);
+      continue;
+    }
+    if (next.end > merged.end) {
+      if (next.start <= merged.start) {
+        merged.quote = next.quote;
+      } else {
+        merged.quote += skipCodePoints(next.quote, merged.end - next.start);
+      }
+      merged.end = next.end;
+    }
+    if (merged.comment.empty()) {
+      merged.comment = next.comment;
+    } else if (!next.comment.empty() && next.comment != merged.comment) {
+      merged.comment += "\n\n" + next.comment;
+    }
+  }
+  if (!entries.empty()) entries.resize(kept + 1);
 }
 
 std::string format(const std::string& title, const std::vector<Highlight>& entries) {

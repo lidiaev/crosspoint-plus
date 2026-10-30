@@ -71,3 +71,50 @@ TEST(HighlightFormat, SortsByBookOrderWithHandWrittenLast) {
   EXPECT_EQ(entries[1].start, 9u);
   EXPECT_EQ(entries[2].spine, -1);
 }
+
+namespace {
+Highlight make(const int spine, const uint32_t start, const uint32_t end, const std::string& quote,
+               const std::string& comment = "") {
+  Highlight entry;
+  entry.spine = spine;
+  entry.start = start;
+  entry.end = end;
+  entry.quote = quote;
+  entry.comment = comment;
+  return entry;
+}
+}  // namespace
+
+TEST(HighlightFormat, SameRangeBecomesOneEntryWithTheComment) {
+  std::vector<Highlight> entries{make(1, 10, 15, "слово"), make(1, 10, 15, "слово", "мысль")};
+  highlights::mergeOverlapping(entries);
+  ASSERT_EQ(entries.size(), 1u);
+  EXPECT_EQ(entries[0].quote, "слово");
+  EXPECT_EQ(entries[0].comment, "мысль");
+}
+
+TEST(HighlightFormat, WiderSelectionSwallowsTheHighlightInside) {
+  std::vector<Highlight> entries{make(1, 14, 19, "слово", "мысль"), make(1, 10, 30, "вокруг слово вокруг")};
+  highlights::mergeOverlapping(entries);
+  ASSERT_EQ(entries.size(), 1u);
+  EXPECT_EQ(entries[0].start, 10u);
+  EXPECT_EQ(entries[0].end, 30u);
+  EXPECT_EQ(entries[0].quote, "вокруг слово вокруг");
+  EXPECT_EQ(entries[0].comment, "мысль");
+}
+
+TEST(HighlightFormat, PartialOverlapJoinsQuotesAndComments) {
+  std::vector<Highlight> entries{make(1, 0, 6, "abc de", "one"), make(1, 4, 10, "de fgh", "two")};
+  highlights::mergeOverlapping(entries);
+  ASSERT_EQ(entries.size(), 1u);
+  EXPECT_EQ(entries[0].end, 10u);
+  EXPECT_EQ(entries[0].quote, "abc de fgh");
+  EXPECT_EQ(entries[0].comment, "one\n\ntwo");
+}
+
+TEST(HighlightFormat, SeparateHighlightsStaySeparate) {
+  std::vector<Highlight> entries{make(1, 0, 5, "a"), make(1, 5, 9, "b"), make(2, 0, 5, "c"), make(-1, 0, 0, "d"),
+                                 make(-1, 0, 0, "e")};
+  highlights::mergeOverlapping(entries);
+  EXPECT_EQ(entries.size(), 5u);
+}

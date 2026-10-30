@@ -64,6 +64,7 @@ class BookSelectionActivity final : public Activity {
   int actions(Action out[MAX_ACTIONS]) const;
   void run(Action action);
   highlights::Highlight& entryForSelection();
+  void growOverHighlights();
   void saveEntries();
   std::string selectedText() const;
   void drawBase();
@@ -81,6 +82,7 @@ class BookSelectionActivity final : public Activity {
   int fontId = 0;
   int lineHeight = 0;
   std::vector<Word> words;
+  std::vector<int16_t> wordEntry;  // the highlight already drawn on each word, -1 for none
 
   // Input task writes the range, the render task draws it.
   std::atomic<int> firstWord{0};

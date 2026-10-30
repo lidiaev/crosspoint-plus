@@ -29,6 +29,9 @@ struct Highlight {
 
 // Book order; entries without an anchor last.
 void sortByPosition(std::vector<Highlight>& entries);
+// Sorts, then joins highlights that overlap in the book: their ranges, quotes
+// and comments become one entry.
+void mergeOverlapping(std::vector<Highlight>& entries);
 std::string format(const std::string& title, const std::vector<Highlight>& entries);
 void parse(const std::string& text, std::string& title, std::vector<Highlight>& entries);
 

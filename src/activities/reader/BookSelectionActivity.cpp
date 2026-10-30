@@ -63,6 +63,17 @@ void BookSelectionActivity::onEnter() {
   firstWord = first;
   lastWord = last;
   anchorWord = first;
+  wordEntry.assign(words.size(), -1);
+  for (size_t i = 0; i < words.size(); ++i) {
+    for (size_t e = 0; e < entries.size(); ++e) {
+      const highlights::Highlight& entry = entries[e];
+      if (static_cast<int>(e) == existing || entry.spine != book.spine) continue;
+      if (words[i].offset >= entry.start && words[i].offset < entry.end) {
+        wordEntry[i] = static_cast<int16_t>(e);
+        break;
+      }
+    }
+  }
   requestUpdate();
 }
 
@@ -99,8 +110,8 @@ void BookSelectionActivity::extractWords() {
       Word word{};
       word.x = static_cast<int16_t>(line->xPos + block->wordXpos(i) + marginLeft);
       word.y = static_cast<int16_t>(line->yPos + marginTop + block->getRubyShift(ascender));
-      word.width = static_cast<int16_t>(
-          renderer.getTextAdvanceX(fontId, block->wordText(i), block->wordStyle(i), tracking));
+      word.width =
+          static_cast<int16_t>(renderer.getTextAdvanceX(fontId, block->wordText(i), block->wordStyle(i), tracking));
       word.row = row;
       word.offset = block->wordVisibleOffset(i);
       word.text = block->wordText(i);
@@ -169,8 +180,27 @@ std::string BookSelectionActivity::selectedText() const {
   return out;
 }
 
+// Highlights the selection touches join it, so its quote covers them whole.
+void BookSelectionActivity::growOverHighlights() {
+  int first = firstWord.load();
+  int last = lastWord.load();
+  const int selectedLast = last;
+  for (int i = first; i <= selectedLast; ++i) {
+    if (wordEntry[i] < 0) continue;
+    for (int w = 0; w < static_cast<int>(words.size()); ++w) {
+      if (wordEntry[w] != wordEntry[i]) continue;
+      first = std::min(first, w);
+      last = std::max(last, w);
+    }
+  }
+  firstWord = first;
+  lastWord = last;
+}
+
+// The saved entry for the selection: a new one, joined with any it overlaps.
 highlights::Highlight& BookSelectionActivity::entryForSelection() {
   if (existing >= 0) return entries[existing];
+  growOverHighlights();
   highlights::Highlight entry;
   entry.spine = book.spine;
   entry.start = words[firstWord.load()].offset;
@@ -178,8 +208,15 @@ highlights::Highlight& BookSelectionActivity::entryForSelection() {
   entry.end = last.offset + static_cast<uint32_t>(codePoints(last.text));
   entry.percent = book.percent;
   entry.quote = selectedText();
+  const uint32_t start = entry.start;
   entries.push_back(std::move(entry));
-  existing = static_cast<int>(entries.size()) - 1;
+  highlights::mergeOverlapping(entries);
+  for (size_t i = 0; i < entries.size(); ++i) {
+    if (entries[i].spine == book.spine && start >= entries[i].start && start < entries[i].end) {
+      existing = static_cast<int>(i);
+      break;
+    }
+  }
   return entries[existing];
 }
 
@@ -335,17 +372,19 @@ void BookSelectionActivity::drawSelection() {
   const bool invert = SETTINGS.selectionStyle == CrossPointSettings::SELECTION_INVERT;
   const int first = firstWord.load();
   const int last = lastWord.load();
-  for (int i = first; i <= last;) {
-    int runEnd = i;
-    while (runEnd < last && words[runEnd + 1].row == words[i].row) ++runEnd;
-    const int x = words[i].x;
-    const int width = words[runEnd].x + words[runEnd].width - x;
-    if (invert) {
-      renderer.invertRect(x, words[i].y, width, lineHeight);
-    } else {
-      renderer.fillRect(x, words[i].y + lineHeight - 2, width, 2);
+  for (int i = first; i <= last; ++i) {
+    const Word& word = words[i];
+    const bool joined = i > first && words[i - 1].row == word.row;
+    const int gapX = joined ? words[i - 1].x + words[i - 1].width : word.x;
+    if (!invert) {
+      renderer.fillRect(gapX, word.y + lineHeight - 2, word.x + word.width - gapX, 2);
+      continue;
     }
-    i = runEnd + 1;
+    // Words of a saved highlight are inverted already; flipping them again would undo that.
+    const bool marked = wordEntry[i] >= 0;
+    const bool gapMarked = joined && marked && wordEntry[i - 1] == wordEntry[i];
+    if (!gapMarked && gapX < word.x) renderer.invertRect(gapX, word.y, word.x - gapX, lineHeight);
+    if (!marked) renderer.invertRect(word.x, word.y, word.width, lineHeight);
   }
   const Word& start = words[first];
   const Word& end = words[last];

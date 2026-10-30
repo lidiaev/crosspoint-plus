@@ -144,7 +144,9 @@ void BookHighlightsActivity::deleteEntry(const int index) {
   requestUpdate();
 }
 
-bool BookHighlightsActivity::handleCustomInput() { return popup.handleInput(mappedInput, [this] { requestUpdate(); }); }
+bool BookHighlightsActivity::handleCustomInput() {
+  return popup.handleInput(mappedInput, [this] { requestUpdate(); });
+}
 
 bool BookHighlightsActivity::handleButtons() {
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
